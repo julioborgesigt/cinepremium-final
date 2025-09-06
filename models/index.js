@@ -1,8 +1,11 @@
 const { Sequelize, DataTypes } = require('sequelize');
 
-// Configure a conexão conforme seu ambiente:
-const sequelize = new Sequelize('cinepremiumedit_banco', 'cinepremiumedit', 'T918bZ)_-HdUep42kM', {
-  host: 'sao.domcloud.co',
+// Adicione esta linha no topo se ainda não tiver
+require('dotenv').config();
+
+// MODIFICADO: A conexão agora usa as variáveis de ambiente
+const sequelize = new Sequelize(process.env.DB_NAME, process.env.DB_USER, process.env.DB_PASS, {
+  host: process.env.DB_HOST,
   dialect: 'mysql'
 });
 
