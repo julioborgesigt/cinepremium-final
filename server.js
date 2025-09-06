@@ -464,15 +464,15 @@ app.post('/api/devices', requireLogin, async (req, res) => {
 });
 
 // NOVO: Rota temporária para depurar as variáveis de ambiente
+// Rota temporária para depurar as variáveis de ambiente
 app.get('/debug-env', (req, res) => {
+  const firebaseCreds = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   res.json({
-    message: "Variáveis de ambiente lidas pelo servidor de produção:",
-    DB_HOST: process.env.DB_HOST || null,
-    DB_USER: process.env.DB_USER || null,
-    DB_NAME: process.env.DB_NAME || null,
-    DB_PASS_EXISTS: !!process.env.DB_PASS,
-    ONDAPAY_CLIENT_ID_EXISTS: !!process.env.ONDAPAY_CLIENT_ID,
-    ADMIN_USER_EXISTS: !!process.env.ADMIN_USER,
+    message: "Verificação das variáveis de ambiente no servidor:",
+    FIREBASE_SERVICE_ACCOUNT_JSON_EXISTS: !!firebaseCreds,
+    FIREBASE_SERVICE_ACCOUNT_JSON_IS_STRING: typeof firebaseCreds === 'string',
+    FIREBASE_SERVICE_ACCOUNT_JSON_LENGTH: firebaseCreds ? firebaseCreds.length : 0,
+    FIREBASE_SERVICE_ACCOUNT_JSON_START: firebaseCreds ? firebaseCreds.substring(0, 50) + '...' : null
   });
 });
 
