@@ -514,68 +514,77 @@
     }
     
     // Gera o QR Code de pagamento, enviando também os dados do cliente
-    document.getElementById('generateBtn').addEventListener('click', async function() { // NOVO: Adicionado 'async' aqui
-      if (!selectedProduct) return;
-      
-      const nome = document.getElementById('nome').value.trim();
-      const telefone = document.getElementById('telefone').value.trim();
-      const cpf = document.getElementById('cpf').value.trim();
-      const email = document.getElementById('email').value.trim();
+    // Substitua todo o bloco 'generateBtn' por este
 
-      // NOVO: Mostrar o spinner e desabilitar o botão
-      document.getElementById('loadingSpinner').style.display = 'block';
-      this.disabled = true; // Desabilita o próprio botão "Gerar QR Code"
-      this.classList.add('loading'); // Adiciona classe visual de loading
+document.getElementById('generateBtn').addEventListener('click', async function() {
+  if (!selectedProduct) return;
+  
+  const nome = document.getElementById('nome').value.trim();
+  const telefone = document.getElementById('telefone').value.trim();
+  const cpf = document.getElementById('cpf').value.trim();
+  const email = document.getElementById('email').value.trim();
 
-      try { // NOVO: Adicionado bloco try...catch para gerenciar o spinner em caso de erro
-        const response = await fetch('/gerarqrcode', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            value: selectedProduct.price, 
-            nome, 
-            telefone,
-            cpf,
-            email,
-            productTitle: selectedProduct.title,
-            productDescription: selectedProduct.description || ''
-          })
-        });
+  document.getElementById('loadingSpinner').style.display = 'block';
+  this.disabled = true;
+  this.classList.add('loading');
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          // NOVO: Log na página de vendas para confirmar o disparo da notificação
-          console.log('[Página de Venda] QR Code recebido do servidor. A notificação para o admin foi disparada neste momento.');
+  // LOG 1: Confirma que o processo iniciou
+  console.log('[Página de Venda] Botão clicado. Tentando gerar QR Code...');
 
-          const errorMessage = errorData.error || (errorData.msg && Object.values(errorData.msg)[0]) || 'Ocorreu um erro desconhecido.';
-          throw new Error(errorMessage);
-        }
-        const data = await response.json(); // NOVO: Usar 'await' aqui
-        
-        document.getElementById('qrDisplay').style.display = 'block';
-        document.getElementById('nome').style.display = 'none';
-        document.getElementById('telefone').style.display = 'none';
-        document.getElementById('cpf').style.display = 'none';
-        document.getElementById('email').style.display = 'none';
-        document.getElementById('generateBtn').style.display = 'none';
-        
-        // CORREÇÃO AQUI: Adicionar o prefixo para Base64
-        document.getElementById('qrCodeImg').innerHTML = `<img src="data:image/png;base64,${data.qr_code_base64}" alt="QR Code de Pagamento" style="width:200px; height:200px;">`;
-        document.getElementById('qrCodeText').textContent = data.qr_code;
-        transactionId = data.id;
-        qrCodeExpirationTimestamp = data.expirationTimestamp; // MODIFICADO: Armazena o timestamp recebido do servidor
-        document.getElementById('transactionId').textContent = 'ID da Transação: ' + transactionId;
-        if (pollingInterval) clearInterval(pollingInterval);
-        pollingInterval = setInterval(checkPaymentStatus, 5000);
-
-      } catch (error) {
-        showErrorToast(error.message);
-      } finally { // NOVO: O bloco 'finally' sempre executa, garantindo que o spinner seja escondido
-        document.getElementById('loadingSpinner').style.display = 'none';
-        this.disabled = false; // Reabilita o botão "Gerar QR Code"
-        this.classList.remove('loading'); // Remove a classe visual de loading
-      }
+  try {
+    const response = await fetch('/gerarqrcode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        value: selectedProduct.price, 
+        nome, telefone, cpf, email,
+        productTitle: selectedProduct.title,
+        productDescription: selectedProduct.description || ''
+      })
     });
+
+    // LOG 2: Mostra o status da resposta do servidor
+    console.log('[Página de Venda] Resposta inicial do servidor recebida. Status:', response.status, response.statusText);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => response.text());
+      // LOG 3: Mostra o erro exato vindo do servidor
+      console.error('[Página de Venda] O servidor retornou um erro:', errorData);
+      const errorMessage = errorData.error || (errorData.msg && Object.values(errorData.msg)[0]) || 'Ocorreu um erro desconhecido.';
+      throw new Error(errorMessage);
+    }
+    
+    const data = await response.json();
+    
+    // LOG 4: Confirma o sucesso e o disparo da notificação
+    console.log('[Página de Venda] QR Code recebido do servidor. A notificação para o admin foi disparada neste momento.');
+
+    // O resto do seu código de sucesso...
+    document.getElementById('qrDisplay').style.display = 'block';
+    document.getElementById('nome').style.display = 'none';
+    document.getElementById('telefone').style.display = 'none';
+    document.getElementById('cpf').style.display = 'none';
+    document.getElementById('email').style.display = 'none';
+    document.getElementById('generateBtn').style.display = 'none';
+    
+    document.getElementById('qrCodeImg').innerHTML = `<img src="data:image/png;base64,${data.qr_code_base64}" alt="QR Code de Pagamento" style="width:200px; height:200px;">`;
+    document.getElementById('qrCodeText').textContent = data.qr_code;
+    transactionId = data.id;
+    qrCodeExpirationTimestamp = data.expirationTimestamp;
+    document.getElementById('transactionId').textContent = 'ID da Transação: ' + transactionId;
+    if (pollingInterval) clearInterval(pollingInterval);
+    pollingInterval = setInterval(checkPaymentStatus, 5000);
+
+  } catch (error) {
+    // LOG 5: Captura qualquer outro erro que possa ocorrer
+    console.error('[Página de Venda] Erro capturado no bloco CATCH:', error);
+    showErrorToast(error.message);
+  } finally {
+    document.getElementById('loadingSpinner').style.display = 'none';
+    this.disabled = false;
+    this.classList.remove('loading');
+  }
+});
     
     document.getElementById('copyBtn').addEventListener('click', function() {
       const qrCodeText = document.getElementById('qrCodeText').textContent;
