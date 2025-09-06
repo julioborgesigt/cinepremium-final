@@ -31,21 +31,28 @@ app.use(session({
 
 // NOVO: Inicializa o Firebase Admin SDK
 // MODIFICADO: Inicializa o Firebase Admin SDK a partir da variável de ambiente
+// MODIFICADO: Inicializa o Firebase Admin SDK a partir de uma string Base64
 try {
-  // Lê a string da variável de ambiente
-  const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!serviceAccountString) {
-    throw new Error('A variável de ambiente FIREBASE_SERVICE_ACCOUNT_JSON não está definida.');
+  // 1. Lê a string Base64 da variável de ambiente
+  const base64Credentials = process.env.FIREBASE_CREDENTIALS_BASE64;
+  if (!base64Credentials) {
+    throw new Error('A variável de ambiente FIREBASE_CREDENTIALS_BASE64 não está definida.');
   }
-  // Converte a string de volta para um objeto JSON
+
+  // 2. Decodifica a string Base64 de volta para uma string JSON
+  const serviceAccountString = Buffer.from(base64Credentials, 'base64').toString('utf8');
+
+  // 3. Converte a string JSON para um objeto
   const serviceAccount = JSON.parse(serviceAccountString);
 
+  // 4. Inicializa o Firebase
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
   });
-  console.log('Firebase Admin SDK inicializado com sucesso a partir da variável de ambiente.');
+  console.log('Firebase Admin SDK inicializado com sucesso via Base64.');
+
 } catch (error) {
-  console.error('Erro ao inicializar o Firebase Admin SDK:', error.message);
+  console.error('Erro CRÍTICO ao inicializar o Firebase Admin SDK:', error.message);
   console.log('As notificações push não funcionarão.');
 }
 
