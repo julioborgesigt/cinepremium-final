@@ -455,6 +455,20 @@ app.post('/api/devices', requireLogin, async (req, res) => {
   }
 });
 
+// NOVO: Rota temporária para depurar as variáveis de ambiente
+app.get('/debug-env', requireLogin, (req, res) => {
+  res.json({
+    message: "Variáveis de ambiente lidas pelo servidor de produção:",
+    DB_HOST: process.env.DB_HOST || null,
+    DB_USER: process.env.DB_USER || null,
+    DB_NAME: process.env.DB_NAME || null,
+    // Por segurança, nunca exibimos a senha, apenas verificamos se ela existe.
+    DB_PASS_EXISTS: !!process.env.DB_PASS, 
+    ONDAPAY_CLIENT_ID_EXISTS: !!process.env.ONDAPAY_CLIENT_ID,
+    ADMIN_USER_EXISTS: !!process.env.ADMIN_USER,
+  });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`Servidor rodando na porta ${PORT}`);
