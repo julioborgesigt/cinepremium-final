@@ -482,20 +482,22 @@
           console.log('Permissão para notificação concedida.');
           
           // Obtém o token do dispositivo
-          messaging.getToken().then((currentToken) => {
+         // MODIFICADO: Adicionamos a VAPID Key aqui
+          const vapidKey = "BKB2im987uEOxRH07nB3FvII90Jj7lunmP0C9q99a79EpwV8YHqNVOH3pXD7Lo1XK-v4pX_fuUzVpqdXbYIh7xo";
+
+          messaging.getToken({ vapidKey: vapidKey }).then((currentToken) => {
             if (currentToken) {
-              // NOVO: Log mais claro de sucesso na obtenção do token
               console.log('[Firebase JS] Conexão com Firebase bem-sucedida. Token obtido:', currentToken);
               sendTokenToServer(currentToken);
             } else {
-              console.log('Não foi possível obter o token. A permissão foi concedida, mas o token não está disponível.');
+              console.error('[Firebase JS] Não foi possível obter o token.');
             }
           }).catch((err) => {
-            console.error('Ocorreu um erro ao obter o token:', err);
+            console.error('[Firebase JS] Ocorreu um erro ao obter o token.', err);
           });
 
         } else {
-          console.log('Permissão para notificação negada.');
+          console.warn('[Firebase JS] Permissão para notificação negada pelo usuário.');
         }
       });
     }
