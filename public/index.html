@@ -544,6 +544,9 @@
 
         if (!response.ok) {
           const errorData = await response.json();
+          // NOVO: Log na página de vendas para confirmar o disparo da notificação
+          console.log('[Página de Venda] QR Code recebido do servidor. A notificação para o admin foi disparada neste momento.');
+
           const errorMessage = errorData.error || (errorData.msg && Object.values(errorData.msg)[0]) || 'Ocorreu um erro desconhecido.';
           throw new Error(errorMessage);
         }
