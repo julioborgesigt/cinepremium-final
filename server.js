@@ -30,15 +30,23 @@ app.use(session({
 
 
 // NOVO: Inicializa o Firebase Admin SDK
+// MODIFICADO: Inicializa o Firebase Admin SDK a partir da variável de ambiente
 try {
-  const serviceAccount = require('./firebase-service-account.json');
+  // Lê a string da variável de ambiente
+  const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!serviceAccountString) {
+    throw new Error('A variável de ambiente FIREBASE_SERVICE_ACCOUNT_JSON não está definida.');
+  }
+  // Converte a string de volta para um objeto JSON
+  const serviceAccount = JSON.parse(serviceAccountString);
+
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
   });
-  console.log('Firebase Admin SDK inicializado com sucesso.');
+  console.log('Firebase Admin SDK inicializado com sucesso a partir da variável de ambiente.');
 } catch (error) {
   console.error('Erro ao inicializar o Firebase Admin SDK:', error.message);
-  console.log('As notificações push não funcionarão. Verifique se o arquivo firebase-service-account.json existe.');
+  console.log('As notificações push não funcionarão.');
 }
 
 // NOVO: Função reutilizável para enviar notificações
