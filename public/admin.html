@@ -463,7 +463,16 @@
     };
    
     firebase.initializeApp(firebaseConfig);
+    // NOVO: Log para confirmar que a inicialização foi chamada
+    console.log('[Firebase JS] SDK do Firebase inicializado.');
     const messaging = firebase.messaging()
+
+    // NOVO: Este bloco de código escuta por notificações recebidas ENQUANTO a página está aberta e em primeiro plano.
+    messaging.onMessage((payload) => {
+      console.log('[Firebase JS] MENSAGEM RECEBIDA EM PRIMEIRO PLANO: ', payload);
+      // Para ter certeza de que você verá, vamos mostrar um alerta visual
+      alert(`Notificação Recebida!\n\nTítulo: ${payload.notification.title}\nCorpo: ${payload.notification.body}`);
+    });
 
     
     function requestNotificationPermission() {
@@ -475,8 +484,8 @@
           // Obtém o token do dispositivo
           messaging.getToken().then((currentToken) => {
             if (currentToken) {
-              console.log('Token do dispositivo:', currentToken);
-              // Envia o token para o seu servidor
+              // NOVO: Log mais claro de sucesso na obtenção do token
+              console.log('[Firebase JS] Conexão com Firebase bem-sucedida. Token obtido:', currentToken);
               sendTokenToServer(currentToken);
             } else {
               console.log('Não foi possível obter o token. A permissão foi concedida, mas o token não está disponível.');
