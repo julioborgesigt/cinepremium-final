@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CinePremium Edit</title>
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <style>
     /* Estilos globais */
     body {
@@ -568,19 +567,7 @@ document.getElementById('generateBtn').addEventListener('click', async function(
     document.getElementById('email').style.display = 'none';
     document.getElementById('generateBtn').style.display = 'none';
     
-    
-    // NOVO: Bloco para gerar o QR Code diretamente no navegador
-    const qrCodeContainer = document.getElementById('qrCodeImg');
-    qrCodeContainer.innerHTML = ""; // Limpa qualquer QR code antigo
-    new QRCode(qrCodeContainer, {
-      text: data.qr_code, // Usa a string "copia e cola" para gerar a imagem
-      width: 200,
-      height: 200,
-      colorDark: "#000000",
-      colorLight: "#ffffff",
-      correctLevel: QRCode.CorrectLevel.H
-    });
-    // ADICIONE ESTA LINHA DE VOLTA
+    document.getElementById('qrCodeImg').innerHTML = `<img src="data:image/png;base64,${data.qr_code_base64}" alt="QR Code de Pagamento" style="width:200px; height:200px;">`;
     document.getElementById('qrCodeText').textContent = data.qr_code;
     transactionId = data.id;
     qrCodeExpirationTimestamp = data.expirationTimestamp;
@@ -598,8 +585,6 @@ document.getElementById('generateBtn').addEventListener('click', async function(
     this.classList.remove('loading');
   }
 });
-
-
     
     document.getElementById('copyBtn').addEventListener('click', function() {
       const qrCodeText = document.getElementById('qrCodeText').textContent;
