@@ -539,17 +539,23 @@
     }
 
     // Função para enviar o token para o seu backend
-    function sendTokenToServer(token) {
-      fetch('/api/devices', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ token: token }),
-      })
-      .then(response => response.json())
-      .then(data => console.log('Resposta do servidor ao registrar dispositivo:', data))
-      .catch(err => console.error('Erro ao enviar token para o servidor:', err));
+    // MODIFICADO: Função para enviar o token para o seu backend agora usa authenticatedFetch
+    async function sendTokenToServer(token) {
+      try {
+        const response = await authenticatedFetch('/api/devices', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ token: token }),
+        });
+        const data = await response.json();
+        console.log('Resposta do servidor ao registrar dispositivo:', data);
+      } catch (err) {
+        if (err.message !== 'Sessão expirada') {
+          console.error('Erro ao enviar token para o servidor:', err);
+        }
+      }
     }
 
     // Adiciona um botão ou chama a função ao carregar a página
