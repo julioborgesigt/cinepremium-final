@@ -114,11 +114,20 @@ async function sendPushNotification(title, body) {
 // --- SEÇÃO DE AUTENTICAÇÃO ---
 
 // NOVO: Middleware para proteger rotas. Ele verifica se o usuário está logado.
+// MODIFICADO: O middleware agora trata requisições de API (fetch) de forma diferente
 function requireLogin(req, res, next) {
   if (req.session.loggedin) {
-    next(); // Se a sessão existe, continua para a próxima rota
+    next(); // Se a sessão existe, continua.
   } else {
-    res.redirect('/login'); // Se não, redireciona para a página de login
+    // Verifica se a requisição veio de um script (como o fetch do admin.html)
+    // `req.xhr` é uma forma comum de checar isso.
+    if (req.xhr || req.headers.accept.indexOf('json') > -1) {
+      // Se for uma requisição de API, envia um erro 401 (Não Autorizado)
+      res.status(401).json({ error: 'Sua sessão expirou, faça o login novamente.' });
+    } else {
+      // Se for uma navegação normal (digitando a URL), redireciona para o login
+      res.redirect('/login');
+    }
   }
 }
 

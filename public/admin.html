@@ -247,6 +247,36 @@
   <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-messaging-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
   <script>
+
+    // NOVO: Função centralizada para fazer chamadas de API com tratamento de sessão expirada
+        async function authenticatedFetch(url, options = {}) {
+            try {
+                const response = await fetch(url, options);
+
+                // Se a resposta for 401 (Não Autorizado), a sessão expirou
+                if (response.status === 401) {
+                    const data = await response.json();
+                    alert(data.error || 'Sua sessão expirou, faça o login novamente.');
+                    // Redireciona para a página de login
+                    window.location.href = '/login';
+                    // Lança um erro para parar a execução do código que chamou esta função
+                    throw new Error('Sessão expirada');
+                }
+
+                return response; // Se não houver erro, retorna a resposta original
+            } catch (error) {
+                // Se o erro já for de sessão expirada, apenas o propaga
+                if (error.message === 'Sessão expirada') {
+                    throw error;
+                }
+                // Para outros erros de rede, etc.
+                console.error('Erro na chamada da API:', error);
+                alert('Ocorreu um erro de comunicação com o servidor.');
+                throw error;
+            }
+        }
+
+
     // NOVO: Listener para converter a imagem selecionada para Base64
     document.getElementById('imageFile').addEventListener('change', function(event) {
         const file = event.target.files[0];
@@ -278,7 +308,7 @@
       const product = { title, price, image, description };
       
       try {
-        const response = await fetch('/api/products', {
+        const response = await authenticatedFetch('/api/products', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(product)
@@ -291,14 +321,18 @@
         document.getElementById('imageBase64').value = ''; // Limpa o campo oculto
         loadProducts();
       } catch (error) {
-        alert(error);
-      }
+                // O erro de sessão expirada já é tratado dentro do authenticatedFetch,
+                // então aqui só precisamos nos preocupar com outros erros.
+                if (error.message !== 'Sessão expirada') {
+                    alert(error);
+                }
+            }
     });
     
     // Carrega os produtos e exibe-os em cards
     async function loadProducts() {
       try {
-        const response = await fetch('/api/products');
+        const response = await authenticatedFetch('/api/products');
         const products = await response.json();
         const grid = document.getElementById('productGrid');
         grid.innerHTML = '';
@@ -318,48 +352,48 @@
         });
         // Inicializa o Sortable para reordenar os cards
         new Sortable(grid, {
-          animation: 150,
-          ghostClass: 'sortable-ghost',
-          delay: 1000,
-          delayOnTouchOnly: true,
-          filter: '.delete-button',
-          preventOnFilter: false,
-          onEnd: function(evt) {
-            const newOrder = [];
-            document.querySelectorAll('.product-card').forEach(card => {
-              newOrder.push(card.getAttribute('data-id'));
-            });
-            fetch('/api/products/reorder', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ order: newOrder })
-            })
-            .then(response => response.json())
-            .then(data => console.log(data))
-            .catch(error => console.error(error));
-          }
+            // ...
+            onEnd: function(evt) {
+                // ...
+                authenticatedFetch('/api/products/reorder', { // MUDANÇA AQUI
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ order: newOrder })
+                })
+                .then(response => response.json())
+                .then(data => console.log(data))
+                .catch(error => {
+                    if (error.message !== 'Sessão expirada') {
+                        console.error(error);
+                    }
+                });
+            }
         });
       } catch (error) {
-        console.error('Erro ao carregar produtos:', error);
-      }
+                if (error.message !== 'Sessão expirada') {
+                    console.error('Erro ao carregar produtos:', error);
+                }
+            }
     }
     
     // Função para excluir um produto
     async function deleteProduct(productId) {
-      if (!confirm('Tem certeza que deseja excluir este produto?')) return;
-      try {
-        const response = await fetch(`/api/products/${productId}`, {
-          method: 'DELETE'
-        });
-        if (!response.ok) {
-          throw new Error('Erro ao excluir produto');
+            if (!confirm('Tem certeza que deseja excluir este produto?')) return;
+            try {
+                const response = await authenticatedFetch(`/api/products/${productId}`, { // MUDANÇA AQUI
+                    method: 'DELETE'
+                });
+                if (!response.ok) {
+                    throw new Error('Erro ao excluir produto');
+                }
+                alert('Produto excluído com sucesso!');
+                loadProducts();
+            } catch (error) {
+                if (error.message !== 'Sessão expirada') {
+                    alert(error);
+                }
+            }
         }
-        alert('Produto excluído com sucesso!');
-        loadProducts();
-      } catch (error) {
-        alert(error);
-      }
-    }
     
     function carregarMesAno() {
       const selectMes = document.getElementById('mes');
@@ -393,7 +427,7 @@
       if (telefone) url += `&telefone=${encodeURIComponent(telefone)}`;
 
       try {
-        const response = await fetch(url);
+        const response = await authenticatedFetch(url);
         const history = await response.json();
         const resultsDiv = document.getElementById('historyResults');
         resultsDiv.innerHTML = '';
@@ -416,8 +450,10 @@
         html += '</table>';
         resultsDiv.innerHTML = html;
       } catch (error) {
-        alert('Erro ao carregar histórico: ' + error);
-      }
+                if (error.message !== 'Sessão expirada') {
+                    alert('Erro ao carregar histórico: ' + error);
+                }
+            }
     }
 
     function formatPhone(value) {
