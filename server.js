@@ -273,7 +273,6 @@ app.post('/gerarqrcode', async (req, res) => {
     const resultado = {
       id: data.id_transaction,
       qr_code: data.qrcode,
-      qr_code_base64: data.qrcode_base64,
       expirationTimestamp: expirationDate.getTime()
     };
 
