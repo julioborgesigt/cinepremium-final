@@ -596,6 +596,9 @@ document.getElementById('generateBtn').addEventListener('click', async function(
     this.classList.remove('loading');
   }
 });
+
+// ADICIONE ESTA LINHA DE VOLTA
+document.getElementById('qrCodeText').textContent = data.qr_code;
     
     document.getElementById('copyBtn').addEventListener('click', function() {
       const qrCodeText = document.getElementById('qrCodeText').textContent;
