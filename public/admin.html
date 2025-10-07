@@ -352,26 +352,42 @@
         });
         // Inicializa o Sortable para reordenar os cards
         new Sortable(grid, {
-            // ...
-            onEnd: function(evt) {
-                // ...
-                authenticatedFetch('/api/products/reorder', { // MUDANÇA AQUI
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ order: newOrder })
-                })
-                .then(response => response.json())
-                .then(data => console.log(data))
-                .catch(error => {
-                    if (error.message !== 'Sessão expirada') {
-                        console.error(error);
-                    }
-                });
-            }
-        });
+          animation: 150, // Adiciona uma animação suave ao arrastar
+          onEnd: function(evt) {
+              // --- INÍCIO DA CORREÇÃO ---
+              
+              // 1. Pega todos os elementos filhos do grid na nova ordem.
+              const items = grid.children;
+
+              // 2. Cria o array 'newOrder' mapeando os itens e pegando o 'data-id' de cada um.
+              const newOrder = Array.from(items).map(item => item.getAttribute('data-id'));
+
+              // --- FIM DA CORREÇÃO ---
+
+              // Agora a variável 'newOrder' existe e contém a lista de IDs na ordem correta.
+              authenticatedFetch('/api/products/reorder', { 
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ order: newOrder })
+              })
+              .then(response => {
+                  if (!response.ok) {
+                      throw new Error('Falha ao reordenar produtos.');
+                  }
+                  return response.json();
+              })
+              .then(data => console.log(data.message)) // Exibe a mensagem de sucesso
+              .catch(error => {
+                  if (error.message !== 'Sessão expirada') {
+                      console.error('Erro ao reordenar:', error);
+                      alert('Ocorreu um erro ao tentar salvar a nova ordem.');
+                  }
+              });
+          }
+      });
       } catch (error) {
                 if (error.message !== 'Sessão expirada') {
-                    console.error('Erro ao carregar produtos:', error);
+                    alert('Erro ao carregar produtos: ' + error);
                 }
             }
     }
