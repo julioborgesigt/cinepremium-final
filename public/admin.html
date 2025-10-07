@@ -387,7 +387,7 @@
       });
       } catch (error) {
                 if (error.message !== 'Sessão expirada') {
-                    alert('Erro ao carregar produtos: ' + error);
+                    console.error('Erro ao carregar produtos:', error);
                 }
             }
     }
