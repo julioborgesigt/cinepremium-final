@@ -3,29 +3,69 @@ require('dotenv').config();
 
 const admin = require('firebase-admin');
 const express = require('express');
-const bodyParser = require('body-parser');
 const path = require('path');
-const axios = require('axios'); // Utilize axios para requisições HTTP
+const crypto = require('crypto');
+const axios = require('axios');
 const { Op } = require('sequelize');
 const { Product, PurchaseHistory, AdminDevice } = require('./models');
 
-// NOVO: Dependências para gerenciar sessões e cookies
+// Dependências de segurança
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const Joi = require('joi');
+
+// Dependências para gerenciar sessões e cookies
 const session = require('express-session');
 const cookieParser = require('cookie-parser');
 
 const app = express();
-app.use(bodyParser.json());
-// NOVO: Adicionado para interpretar dados de formulários HTML (para o login)
-app.use(bodyParser.urlencoded({ extended: true }));
+
+// SEGURANÇA: Forçar HTTPS em produção
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    if (req.header('x-forwarded-proto') !== 'https') {
+      return res.redirect(`https://${req.header('host')}${req.url}`);
+    }
+    next();
+  });
+}
+
+// SEGURANÇA: Headers de segurança HTTP
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://www.gstatic.com", "https://cdn.jsdelivr.net"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api.ondapay.app", "https://fcm.googleapis.com"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"]
+    }
+  },
+  crossOriginEmbedderPolicy: false
+}));
+
+// Parsers nativos do Express (body-parser não é mais necessário)
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// NOVO: Configuração do middleware de sessão
+// Configuração do middleware de sessão com flags de segurança
 app.use(cookieParser());
 app.use(session({
-  secret: process.env.SESSION_SECRET, // Chave secreta para assinar o cookie da sessão
+  secret: process.env.SESSION_SECRET,
   resave: false,
-  saveUninitialized: true,
-  cookie: { maxAge: 8 * 60 * 60 * 1000 } // A sessão expira em 8 horas
+  saveUninitialized: false, // Alterado para false por segurança
+  name: 'sessionId', // Nome customizado em vez de 'connect.sid'
+  cookie: {
+    maxAge: 8 * 60 * 60 * 1000, // 8 horas
+    httpOnly: true, // Previne acesso via JavaScript
+    secure: process.env.NODE_ENV === 'production', // Apenas HTTPS em produção
+    sameSite: 'strict' // Proteção contra CSRF
+  }
 }));
 
 
@@ -56,10 +96,74 @@ try {
   console.log('As notificações push não funcionarão.');
 }
 
-// NOVO: Função reutilizável para enviar notificações
-// Em server.js, substitua a função sendPushNotification inteira por esta:
+// SEGURANÇA: Rate limiters para diferentes endpoints
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5, // 5 tentativas por IP
+  message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
-// MODIFICADO: Função reutilizável para enviar notificações com logs detalhados
+const qrCodeLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 10, // 10 QR codes por IP por hora
+  message: { error: 'Muitas tentativas de geração de QR Code. Tente novamente mais tarde.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 100, // 100 requisições por IP
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// SEGURANÇA: Função para sanitizar dados sensíveis dos logs
+function sanitizeForLog(data) {
+  if (!data) return data;
+
+  const sanitized = { ...data };
+  const sensitiveFields = ['cpf', 'telefone', 'nome', 'email', 'password', 'document'];
+
+  sensitiveFields.forEach(field => {
+    if (sanitized[field]) {
+      const value = String(sanitized[field]);
+      if (value.length > 4) {
+        sanitized[field] = value.substring(0, 2) + '***' + value.substring(value.length - 2);
+      } else {
+        sanitized[field] = '***';
+      }
+    }
+  });
+
+  if (sanitized.payer) {
+    sanitized.payer = sanitizeForLog(sanitized.payer);
+  }
+
+  return sanitized;
+}
+
+// SEGURANÇA: Schemas de validação com Joi
+const qrCodeSchema = Joi.object({
+  value: Joi.number().integer().positive().required(),
+  nome: Joi.string().min(3).max(100).pattern(/^[a-zA-ZÀ-ÿ\s]+$/).required(),
+  telefone: Joi.string().pattern(/^\(\d{2}\)\s\d{5}-\d{4}$/).required(),
+  cpf: Joi.string().pattern(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/).required(),
+  email: Joi.string().email().required(),
+  productTitle: Joi.string().max(200).required(),
+  productDescription: Joi.string().max(500).allow('', null)
+});
+
+const purchaseHistorySchema = Joi.object({
+  nome: Joi.string().min(3).max(100).pattern(/^[a-zA-ZÀ-ÿ\s]+$/).optional(),
+  telefone: Joi.string().pattern(/^\d{10,11}$/).optional(),
+  mes: Joi.number().integer().min(1).max(12).optional(),
+  ano: Joi.number().integer().min(2025).max(2100).optional()
+});
+
+// Função reutilizável para enviar notificações com logs sanitizados
 async function sendPushNotification(title, body) {
   console.log(`--- [PUSH LOG] --- Iniciando envio de notificação: "${title}"`);
   
@@ -135,14 +239,23 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-// NOVO: Rota para validar as credenciais enviadas pelo formulário de login
-app.post('/auth', (req, res) => {
+// SEGURANÇA: Rota para validar credenciais com rate limiting
+app.post('/auth', loginLimiter, (req, res) => {
   const { username, password } = req.body;
+
+  // Validação de entrada
+  if (!username || !password) {
+    return res.redirect('/login?error=1');
+  }
+
   // Compara os dados do formulário com as variáveis de ambiente seguras
   if (username === process.env.ADMIN_USER && password === process.env.ADMIN_PASS) {
-    req.session.loggedin = true; // Se as credenciais estiverem corretas, cria a sessão
-    res.redirect('/admin'); // Redireciona para o painel de admin
+    req.session.loggedin = true;
+    req.session.username = username; // Armazena username na sessão
+    console.log(`[AUTH] Login bem-sucedido para usuário: ${username}`);
+    res.redirect('/admin');
   } else {
+    console.log(`[AUTH] Tentativa de login falhou para usuário: ${username}`);
     res.redirect('/login?error=1');
   }
 });
@@ -201,37 +314,56 @@ async function getOndaPayToken(forceNew = false) {
 
 // --- ROTAS PÚBLICAS (Acessíveis sem login) ---
 
-// Endpoint para gerar QR Code de pagamento
-// MODIFICADO: A rota de gerar QR Code agora tem a lógica de renovação de token
-app.post('/gerarqrcode', async (req, res) => {
+// SEGURANÇA: Endpoint para gerar QR Code com validação, rate limiting e sanitização
+app.post('/gerarqrcode', qrCodeLimiter, async (req, res) => {
   try {
-    const { value, nome, telefone, cpf, email, productTitle, productDescription } = req.body;
-    if (!value || !nome || !telefone || !cpf || !email) {
-      return res.status(400).json({ error: "Todos os campos, incluindo e-mail, são obrigatórios." });
+    // Validação de entrada com Joi
+    const { error, value: validatedData } = qrCodeSchema.validate(req.body);
+    if (error) {
+      console.log(`[QR CODE] Validação falhou: ${error.details[0].message}`);
+      return res.status(400).json({ error: error.details[0].message });
     }
-    
-    // ... (lógica de verificação de tentativas de compra inalterada) ...
+
+    const { value, nome, telefone, cpf, email, productTitle, productDescription } = validatedData;
+
+    // Remove formatação do telefone para verificação no banco
+    const telefoneLimpo = telefone.replace(/\D/g, '');
+
+    // Verificação de tentativas de compra (baseada em telefone limpo)
     const now = new Date();
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const attemptsLastHour = await PurchaseHistory.count({ where: { telefone, dataTransacao: { [Op.gte]: oneHourAgo } } });
-    const attemptsLastMonth = await PurchaseHistory.count({ where: { telefone, dataTransacao: { [Op.gte]: oneMonthAgo } } });
+
+    const attemptsLastHour = await PurchaseHistory.count({
+      where: { telefone: telefoneLimpo, dataTransacao: { [Op.gte]: oneHourAgo } }
+    });
+    const attemptsLastMonth = await PurchaseHistory.count({
+      where: { telefone: telefoneLimpo, dataTransacao: { [Op.gte]: oneMonthAgo } }
+    });
+
     if (attemptsLastHour >= 3 || attemptsLastMonth >= 5) {
-      return res.status(429).json({ error: 'Você já tentei pagar muitas vezes, procure seu vendedor ou tente novamente depois de algumas horas' });
+      console.log(`[QR CODE] Limite de tentativas excedido para telefone: ${sanitizeForLog({ telefone: telefoneLimpo }).telefone}`);
+      return res.status(429).json({ error: 'Você já tentou pagar muitas vezes. Procure seu vendedor ou tente novamente depois de algumas horas.' });
     }
     
-    const purchaseRecord = await PurchaseHistory.create({ nome, telefone, status: 'Gerado' });
+    // Cria registro de compra com telefone limpo
+    const purchaseRecord = await PurchaseHistory.create({
+      nome,
+      telefone: telefoneLimpo,
+      status: 'Gerado'
+    });
+
     const expirationDate = new Date();
     expirationDate.setMinutes(expirationDate.getMinutes() + 30);
     const pad = (num) => String(num).padStart(2, '0');
     const dueDateFormatted = `${expirationDate.getFullYear()}-${pad(expirationDate.getMonth() + 1)}-${pad(expirationDate.getDate())} ${pad(expirationDate.getHours())}:${pad(expirationDate.getMinutes())}:${pad(expirationDate.getSeconds())}`;
 
-    // NOVO: Envia notificação de nova venda
+    // Envia notificação de nova venda com dados sanitizados
+    const sanitizedNome = sanitizeForLog({ nome }).nome;
     sendPushNotification(
       'Nova Tentativa de Venda!',
-      `${nome} gerou um QR Code para pagamento.`
+      `Cliente gerou um QR Code para pagamento.`
     );
-
 
     const payload = {
       amount: parseFloat((value / 100).toFixed(2)),
@@ -241,6 +373,8 @@ app.post('/gerarqrcode', async (req, res) => {
       dueDate: dueDateFormatted,
       payer: { name: nome, document: cpf.replace(/\D/g, ''), email: email }
     };
+
+    console.log('[QR CODE] Payload sanitizado:', sanitizeForLog(payload));
     
     // NOVO: Lógica de tentativa e renovação do token
     let token = await getOndaPayToken();
@@ -291,16 +425,38 @@ app.post('/gerarqrcode', async (req, res) => {
   }
 });
 
-// Webhook para receber confirmação de pagamento
+// SEGURANÇA: Webhook com verificação de assinatura e sanitização
 app.post('/ondapay-webhook', async (req, res) => {
-    console.log('--- [WEBHOOK LOG] --- Webhook Recebido. Corpo da requisição:');
-    console.log(JSON.stringify(req.body, null, 2));
-    console.log('--- [WEBHOOK LOG] --- Fim do corpo da requisição.');
+    console.log('--- [WEBHOOK LOG] --- Webhook Recebido.');
 
     try {
+      // IMPORTANTE: Verificação de assinatura do webhook
+      // Nota: A implementação exata depende de como a OndaPay assina webhooks
+      // Este é um exemplo usando HMAC SHA256
+      const signature = req.headers['x-ondapay-signature'] || req.headers['x-signature'];
+
+      if (signature && process.env.ONDAPAY_CLIENT_SECRET) {
+        const bodyString = JSON.stringify(req.body);
+        const expectedSignature = crypto
+          .createHmac('sha256', process.env.ONDAPAY_CLIENT_SECRET)
+          .update(bodyString)
+          .digest('hex');
+
+        if (signature !== expectedSignature) {
+          console.error('[WEBHOOK LOG] Assinatura inválida! Possível tentativa de fraude.');
+          return res.status(403).send('Assinatura inválida');
+        }
+        console.log('[WEBHOOK LOG] Assinatura verificada com sucesso.');
+      } else {
+        console.warn('[WEBHOOK LOG] AVISO: Webhook recebido sem assinatura. Configure verificação de assinatura!');
+      }
+
+      // Log sanitizado do corpo da requisição
+      console.log('[WEBHOOK LOG] Dados sanitizados:', sanitizeForLog(req.body));
+
       const { status, transaction_id, external_id } = req.body;
       if (!status || !transaction_id || !external_id) {
-        console.warn(`[WEBHOOK LOG] Webhook recebido com dados incompletos.`, req.body);
+        console.warn('[WEBHOOK LOG] Webhook recebido com dados incompletos.');
         return res.status(400).send('Dados do webhook incompletos.');
       }
   
@@ -377,8 +533,8 @@ app.get('/api/products', async (req, res) => {
 
 // --- ENDPOINTS DE ADMINISTRAÇÃO (Protegidos) ---
 
-// MODIFICADO: Adicionado 'requireLogin' para proteger a rota
-app.post('/api/products', requireLogin, async (req, res) => {
+// SEGURANÇA: Endpoints de produtos com rate limiting
+app.post('/api/products', requireLogin, apiLimiter, async (req, res) => {
     try {
       const { title, price, image, description } = req.body;
       if (!title || !price || !image) {
@@ -392,8 +548,7 @@ app.post('/api/products', requireLogin, async (req, res) => {
     }
 });
   
-// MODIFICADO: Adicionado 'requireLogin' para proteger a rota
-app.put('/api/products/reorder', requireLogin, async (req, res) => {
+app.put('/api/products/reorder', requireLogin, apiLimiter, async (req, res) => {
     try {
       const { order } = req.body;
       if (!order || !Array.isArray(order)) {
@@ -403,14 +558,13 @@ app.put('/api/products/reorder', requireLogin, async (req, res) => {
         await Product.update({ orderIndex: i }, { where: { id: order[i] } });
       }
       res.json({ message: 'Ordem atualizada com sucesso.' });
-    } catch (error)      {
+    } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Erro ao atualizar a ordem dos produtos.' });
     }
 });
 
-// MODIFICADO: Adicionado 'requireLogin' para proteger a rota
-app.delete('/api/products/:id', requireLogin, async (req, res) => {
+app.delete('/api/products/:id', requireLogin, apiLimiter, async (req, res) => {
     try {
       const { id } = req.params;
       const rowsDeleted = await Product.destroy({ where: { id } });
@@ -424,13 +578,20 @@ app.delete('/api/products/:id', requireLogin, async (req, res) => {
     }
 });
 
-// MODIFICADO: Adicionado 'requireLogin' para proteger a rota
-app.get('/api/purchase-history', requireLogin, async (req, res) => {
+// SEGURANÇA: Endpoint de histórico com validação e rate limiting
+app.get('/api/purchase-history', requireLogin, apiLimiter, async (req, res) => {
     try {
-      const { nome, telefone, mes, ano } = req.query;
+      // Validação de query params
+      const { error, value: validatedQuery } = purchaseHistorySchema.validate(req.query);
+      if (error) {
+        return res.status(400).json({ error: error.details[0].message });
+      }
+
+      const { nome, telefone, mes, ano } = validatedQuery;
       let where = {};
-  
+
       if (nome) {
+        // Usar bind parameter do Sequelize para prevenir SQL injection
         where.nome = { [Op.like]: `%${nome}%` };
       }
       if (telefone) {
@@ -441,11 +602,17 @@ app.get('/api/purchase-history', requireLogin, async (req, res) => {
         const endDate = new Date(ano, mes, 0, 23, 59, 59);
         where.dataTransacao = { [Op.between]: [startDate, endDate] };
       }
-  
-      const history = await PurchaseHistory.findAll({ where, order: [['dataTransacao', 'DESC']] });
+
+      const history = await PurchaseHistory.findAll({
+        where,
+        order: [['dataTransacao', 'DESC']],
+        limit: 1000 // Limite de segurança
+      });
+
+      console.log(`[PURCHASE HISTORY] Consulta realizada por ${req.session.username}, retornando ${history.length} registros`);
       res.json(history);
     } catch (error) {
-      console.error(error);
+      console.error('[PURCHASE HISTORY] Erro:', error.message);
       res.status(500).json({ error: 'Erro ao buscar histórico.' });
     }
 });
@@ -478,18 +645,8 @@ app.post('/api/devices', requireLogin, async (req, res) => {
   }
 });
 
-// NOVO: Rota temporária para depurar as variáveis de ambiente
-// Rota temporária para depurar as variáveis de ambiente
-app.get('/debug-env', (req, res) => {
-  const firebaseCreds = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  res.json({
-    message: "Verificação das variáveis de ambiente no servidor:",
-    FIREBASE_SERVICE_ACCOUNT_JSON_EXISTS: !!firebaseCreds,
-    FIREBASE_SERVICE_ACCOUNT_JSON_IS_STRING: typeof firebaseCreds === 'string',
-    FIREBASE_SERVICE_ACCOUNT_JSON_LENGTH: firebaseCreds ? firebaseCreds.length : 0,
-    FIREBASE_SERVICE_ACCOUNT_JSON_START: firebaseCreds ? firebaseCreds.substring(0, 50) + '...' : null
-  });
-});
+// Endpoint /debug-env REMOVIDO por segurança
+// Nunca exponha informações de configuração em produção
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {

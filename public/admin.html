@@ -277,16 +277,35 @@
         }
 
 
-    // NOVO: Listener para converter a imagem selecionada para Base64
+    // SEGURANÇA: Listener para converter imagem com validação de tamanho e tipo
     document.getElementById('imageFile').addEventListener('change', function(event) {
         const file = event.target.files[0];
         if (file) {
+            // Validação de tipo de arquivo
+            const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+            if (!allowedTypes.includes(file.type)) {
+                alert('Tipo de arquivo não permitido. Use apenas imagens (JPG, PNG, GIF, WebP).');
+                this.value = '';
+                return;
+            }
+
+            // Validação de tamanho (máximo 2MB)
+            const maxSize = 2 * 1024 * 1024; // 2MB em bytes
+            if (file.size > maxSize) {
+                alert('Imagem muito grande. O tamanho máximo permitido é 2MB.\n\nTamanho atual: ' + (file.size / 1024 / 1024).toFixed(2) + 'MB');
+                this.value = '';
+                return;
+            }
+
             const reader = new FileReader();
             reader.onload = function(e) {
                 // Armazena o resultado no campo oculto
                 document.getElementById('imageBase64').value = e.target.result;
             };
-            reader.readAsDataURL(file); // Inicia a leitura do arquivo
+            reader.onerror = function() {
+                alert('Erro ao ler o arquivo. Tente novamente.');
+            };
+            reader.readAsDataURL(file);
         }
     });
 
