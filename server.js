@@ -16,8 +16,19 @@ const cookieParser = require('cookie-parser');
 // NOVO: Dependências de segurança
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cors = require('cors');
 
 const app = express();
+
+// NOVO: Configuração do CORS
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production'
+    ? process.env.ALLOWED_ORIGINS?.split(',') || false // Em produção, apenas origens específicas
+    : true, // Em desenvolvimento, permite todas as origens
+  credentials: true, // Permite cookies
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 
 // NOVO: Configuração do Helmet para segurança
 app.use(helmet({
@@ -291,6 +302,37 @@ async function getOndaPayToken(forceNew = false) {
 
 // --- ROTAS PÚBLICAS (Acessíveis sem login) ---
 
+// NOVO: Endpoint para fornecer configuração do Firebase ao frontend
+app.get('/api/firebase-config', (req, res) => {
+  // Retorna apenas as configurações públicas do Firebase
+  const firebaseConfig = {
+    apiKey: process.env.FIREBASE_API_KEY,
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.FIREBASE_APP_ID,
+    vapidKey: process.env.FIREBASE_VAPID_KEY
+  };
+
+  // Verifica se todas as variáveis estão definidas
+  const missingVars = Object.entries(firebaseConfig)
+    .filter(([key, value]) => !value)
+    .map(([key]) => key);
+
+  if (missingVars.length > 0) {
+    console.warn(`[Firebase Config] Variáveis faltando: ${missingVars.join(', ')}`);
+    // Em desenvolvimento, pode continuar. Em produção, retorna erro.
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(500).json({
+        error: 'Configuração do Firebase incompleta no servidor.'
+      });
+    }
+  }
+
+  res.json(firebaseConfig);
+});
+
 // Endpoint para gerar QR Code de pagamento
 // MODIFICADO: A rota de gerar QR Code agora tem a lógica de renovação de token
 app.post('/gerarqrcode', async (req, res) => {
@@ -409,10 +451,26 @@ app.post('/gerarqrcode', async (req, res) => {
 });
 
 // Webhook para receber confirmação de pagamento
+// ⚠️ IMPORTANTE: Este webhook deve ter verificação de assinatura em produção!
+// A OndaPay envia um header de assinatura para validar a autenticidade do webhook.
+// TODO: Implementar verificação de assinatura HMAC
 app.post('/ondapay-webhook', async (req, res) => {
     console.log('--- [WEBHOOK LOG] --- Webhook Recebido. Corpo da requisição:');
     console.log(JSON.stringify(req.body, null, 2));
     console.log('--- [WEBHOOK LOG] --- Fim do corpo da requisição.');
+
+    // TODO: CRÍTICO - Adicionar verificação de assinatura
+    // Exemplo de implementação:
+    // const signature = req.headers['x-ondapay-signature'];
+    // const crypto = require('crypto');
+    // const computedSignature = crypto
+    //   .createHmac('sha256', process.env.ONDAPAY_WEBHOOK_SECRET)
+    //   .update(JSON.stringify(req.body))
+    //   .digest('hex');
+    // if (signature !== computedSignature) {
+    //   console.error('[WEBHOOK LOG] Assinatura inválida! Possível tentativa de fraude.');
+    //   return res.status(401).send('Assinatura inválida.');
+    // }
 
     try {
       const { status, transaction_id, external_id } = req.body;
