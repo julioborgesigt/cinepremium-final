@@ -13,7 +13,37 @@ const { Product, PurchaseHistory, AdminDevice } = require('./models');
 const session = require('express-session');
 const cookieParser = require('cookie-parser');
 
+// NOVO: Dependências de segurança
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const cors = require('cors');
+
 const app = express();
+
+// NOVO: Configuração do CORS
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production'
+    ? process.env.ALLOWED_ORIGINS?.split(',') || false // Em produção, apenas origens específicas
+    : true, // Em desenvolvimento, permite todas as origens
+  credentials: true, // Permite cookies
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
+// NOVO: Configuração do Helmet para segurança
+app.use(helmet({
+  contentSecurityPolicy: false, // Desabilitado temporariamente para Firebase funcionar
+  crossOriginEmbedderPolicy: false
+}));
+
+// NOVO: Rate limiting global
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 100, // 100 requisições por IP
+  message: 'Muitas requisições deste IP, tente novamente em 15 minutos.'
+});
+app.use(globalLimiter);
+
 app.use(bodyParser.json());
 // NOVO: Adicionado para interpretar dados de formulários HTML (para o login)
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -24,8 +54,14 @@ app.use(cookieParser());
 app.use(session({
   secret: process.env.SESSION_SECRET, // Chave secreta para assinar o cookie da sessão
   resave: false,
-  saveUninitialized: true,
-  cookie: { maxAge: 8 * 60 * 60 * 1000 } // A sessão expira em 8 horas
+  saveUninitialized: false, // Mudado para false para segurança
+  name: 'sessionId', // Nome customizado do cookie
+  cookie: {
+    maxAge: 8 * 60 * 60 * 1000, // A sessão expira em 8 horas
+    httpOnly: true, // Previne acesso via JavaScript (XSS)
+    secure: process.env.NODE_ENV === 'production', // Apenas HTTPS em produção
+    sameSite: 'strict' // Proteção CSRF
+  }
 }));
 
 
@@ -135,8 +171,16 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
+// NOVO: Rate limiting para login (proteção contra força bruta)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5, // 5 tentativas de login
+  message: 'Muitas tentativas de login. Tente novamente em 15 minutos.',
+  skipSuccessfulRequests: true // Não conta logins bem-sucedidos
+});
+
 // NOVO: Rota para validar as credenciais enviadas pelo formulário de login
-app.post('/auth', (req, res) => {
+app.post('/auth', loginLimiter, (req, res) => {
   const { username, password } = req.body;
   // Compara os dados do formulário com as variáveis de ambiente seguras
   if (username === process.env.ADMIN_USER && password === process.env.ADMIN_PASS) {
@@ -159,6 +203,63 @@ app.get('/logout', (req, res) => {
 });
 
 // --- FIM DA SEÇÃO DE AUTENTICAÇÃO ---
+
+
+// --- FUNÇÕES DE VALIDAÇÃO (Backend) ---
+
+// NOVO: Função para validar CPF no backend
+function isValidCPF(cpf) {
+  if (typeof cpf !== 'string') return false;
+  cpf = cpf.replace(/[^\d]+/g, ''); // Remove caracteres não numéricos
+
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) {
+    return false; // Verifica se tem 11 dígitos ou se são todos repetidos
+  }
+
+  let sum = 0;
+  let remainder;
+
+  // Validação do primeiro dígito verificador
+  for (let i = 1; i <= 9; i++) {
+    sum += parseInt(cpf.substring(i - 1, i)) * (11 - i);
+  }
+  remainder = (sum * 10) % 11;
+  if ((remainder === 10) || (remainder === 11)) {
+    remainder = 0;
+  }
+  if (remainder !== parseInt(cpf.substring(9, 10))) {
+    return false;
+  }
+
+  // Validação do segundo dígito verificador
+  sum = 0;
+  for (let i = 1; i <= 10; i++) {
+    sum += parseInt(cpf.substring(i - 1, i)) * (12 - i);
+  }
+  remainder = (sum * 10) % 11;
+  if ((remainder === 10) || (remainder === 11)) {
+    remainder = 0;
+  }
+  if (remainder !== parseInt(cpf.substring(10, 11))) {
+    return false;
+  }
+
+  return true;
+}
+
+// NOVO: Função para validar e-mail
+function isValidEmail(email) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(String(email).toLowerCase());
+}
+
+// NOVO: Função para validar telefone brasileiro (11 dígitos)
+function isValidPhone(phone) {
+  const phoneDigits = phone.replace(/\D/g, '');
+  return phoneDigits.length === 11;
+}
+
+// --- FIM DAS FUNÇÕES DE VALIDAÇÃO ---
 
 
 // MODIFICADO: A rota para a página de administração agora está protegida pelo middleware requireLogin
@@ -201,13 +302,71 @@ async function getOndaPayToken(forceNew = false) {
 
 // --- ROTAS PÚBLICAS (Acessíveis sem login) ---
 
+// NOVO: Endpoint para fornecer configuração do Firebase ao frontend
+app.get('/api/firebase-config', (req, res) => {
+  // Retorna apenas as configurações públicas do Firebase
+  const firebaseConfig = {
+    apiKey: process.env.FIREBASE_API_KEY,
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.FIREBASE_APP_ID,
+    vapidKey: process.env.FIREBASE_VAPID_KEY
+  };
+
+  // Verifica se todas as variáveis estão definidas
+  const missingVars = Object.entries(firebaseConfig)
+    .filter(([key, value]) => !value)
+    .map(([key]) => key);
+
+  if (missingVars.length > 0) {
+    console.warn(`[Firebase Config] Variáveis faltando: ${missingVars.join(', ')}`);
+    // Em desenvolvimento, pode continuar. Em produção, retorna erro.
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(500).json({
+        error: 'Configuração do Firebase incompleta no servidor.'
+      });
+    }
+  }
+
+  res.json(firebaseConfig);
+});
+
 // Endpoint para gerar QR Code de pagamento
 // MODIFICADO: A rota de gerar QR Code agora tem a lógica de renovação de token
 app.post('/gerarqrcode', async (req, res) => {
   try {
     const { value, nome, telefone, cpf, email, productTitle, productDescription } = req.body;
+
+    // NOVO: Validações aprimoradas no backend
     if (!value || !nome || !telefone || !cpf || !email) {
       return res.status(400).json({ error: "Todos os campos, incluindo e-mail, são obrigatórios." });
+    }
+
+    // Validar CPF
+    if (!isValidCPF(cpf)) {
+      return res.status(400).json({ error: "CPF inválido. Por favor, verifique o número digitado." });
+    }
+
+    // Validar e-mail
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: "E-mail inválido. Por favor, verifique o endereço digitado." });
+    }
+
+    // Validar telefone
+    if (!isValidPhone(telefone)) {
+      return res.status(400).json({ error: "Telefone inválido. Deve conter 11 dígitos (DDD + número)." });
+    }
+
+    // Validar valor do produto
+    if (isNaN(value) || value <= 0) {
+      return res.status(400).json({ error: "Valor do produto inválido." });
+    }
+
+    // Validar nome (mínimo 3 caracteres)
+    if (nome.trim().length < 3) {
+      return res.status(400).json({ error: "Nome deve ter no mínimo 3 caracteres." });
     }
     
     // ... (lógica de verificação de tentativas de compra inalterada) ...
@@ -217,7 +376,7 @@ app.post('/gerarqrcode', async (req, res) => {
     const attemptsLastHour = await PurchaseHistory.count({ where: { telefone, dataTransacao: { [Op.gte]: oneHourAgo } } });
     const attemptsLastMonth = await PurchaseHistory.count({ where: { telefone, dataTransacao: { [Op.gte]: oneMonthAgo } } });
     if (attemptsLastHour >= 3 || attemptsLastMonth >= 5) {
-      return res.status(429).json({ error: 'Você já tentei pagar muitas vezes, procure seu vendedor ou tente novamente depois de algumas horas' });
+      return res.status(429).json({ error: 'Você já tentou pagar muitas vezes, procure seu vendedor ou tente novamente depois de algumas horas.' });
     }
     
     const purchaseRecord = await PurchaseHistory.create({ nome, telefone, status: 'Gerado' });
@@ -292,10 +451,26 @@ app.post('/gerarqrcode', async (req, res) => {
 });
 
 // Webhook para receber confirmação de pagamento
+// ⚠️ IMPORTANTE: Este webhook deve ter verificação de assinatura em produção!
+// A OndaPay envia um header de assinatura para validar a autenticidade do webhook.
+// TODO: Implementar verificação de assinatura HMAC
 app.post('/ondapay-webhook', async (req, res) => {
     console.log('--- [WEBHOOK LOG] --- Webhook Recebido. Corpo da requisição:');
     console.log(JSON.stringify(req.body, null, 2));
     console.log('--- [WEBHOOK LOG] --- Fim do corpo da requisição.');
+
+    // TODO: CRÍTICO - Adicionar verificação de assinatura
+    // Exemplo de implementação:
+    // const signature = req.headers['x-ondapay-signature'];
+    // const crypto = require('crypto');
+    // const computedSignature = crypto
+    //   .createHmac('sha256', process.env.ONDAPAY_WEBHOOK_SECRET)
+    //   .update(JSON.stringify(req.body))
+    //   .digest('hex');
+    // if (signature !== computedSignature) {
+    //   console.error('[WEBHOOK LOG] Assinatura inválida! Possível tentativa de fraude.');
+    //   return res.status(401).send('Assinatura inválida.');
+    // }
 
     try {
       const { status, transaction_id, external_id } = req.body;
@@ -381,10 +556,29 @@ app.get('/api/products', async (req, res) => {
 app.post('/api/products', requireLogin, async (req, res) => {
     try {
       const { title, price, image, description } = req.body;
+
+      // Validações aprimoradas
       if (!title || !price || !image) {
         return res.status(400).json({ error: 'Título, preço e imagem são obrigatórios.' });
       }
-      const product = await Product.create({ title, price, image, description });
+
+      // NOVO: Validar que o preço é um número positivo
+      const priceNum = parseInt(price);
+      if (isNaN(priceNum) || priceNum <= 0) {
+        return res.status(400).json({ error: 'Preço deve ser um número positivo maior que zero.' });
+      }
+
+      // NOVO: Validar tamanho da imagem (limite de 1MB em base64)
+      if (image.length > 1500000) { // ~1MB em base64
+        return res.status(400).json({ error: 'Imagem muito grande. O tamanho máximo é 1MB.' });
+      }
+
+      // NOVO: Validar que o título tem no mínimo 3 caracteres
+      if (title.trim().length < 3) {
+        return res.status(400).json({ error: 'Título deve ter no mínimo 3 caracteres.' });
+      }
+
+      const product = await Product.create({ title, price: priceNum, image, description });
       res.json(product);
     } catch (error) {
       console.error(error);
@@ -478,18 +672,8 @@ app.post('/api/devices', requireLogin, async (req, res) => {
   }
 });
 
-// NOVO: Rota temporária para depurar as variáveis de ambiente
-// Rota temporária para depurar as variáveis de ambiente
-app.get('/debug-env', (req, res) => {
-  const firebaseCreds = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  res.json({
-    message: "Verificação das variáveis de ambiente no servidor:",
-    FIREBASE_SERVICE_ACCOUNT_JSON_EXISTS: !!firebaseCreds,
-    FIREBASE_SERVICE_ACCOUNT_JSON_IS_STRING: typeof firebaseCreds === 'string',
-    FIREBASE_SERVICE_ACCOUNT_JSON_LENGTH: firebaseCreds ? firebaseCreds.length : 0,
-    FIREBASE_SERVICE_ACCOUNT_JSON_START: firebaseCreds ? firebaseCreds.substring(0, 50) + '...' : null
-  });
-});
+// REMOVIDO: Rota de debug removida por questões de segurança
+// Esta rota expunha informações sensíveis e foi removida
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
