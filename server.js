@@ -7,11 +7,14 @@ const bodyParser = require('body-parser');
 const path = require('path');
 const axios = require('axios'); // Utilize axios para requisições HTTP
 const { Op } = require('sequelize');
-const { Product, PurchaseHistory, AdminDevice } = require('./models');
+const { Product, PurchaseHistory, AdminDevice, sequelize } = require('./models');
 
 // NOVO: Dependências para gerenciar sessões e cookies
 const session = require('express-session');
 const cookieParser = require('cookie-parser');
+// CORREÇÃO: Redis para store de sessões persistente
+const RedisStore = require('connect-redis').default;
+const { createClient } = require('redis');
 
 // NOVO: Dependências de segurança
 const helmet = require('helmet');
@@ -25,10 +28,18 @@ const app = express();
 // Isso permite que o Express reconheça HTTPS quando atrás de um proxy
 app.set('trust proxy', 1);
 
+// CORREÇÃO: Validação de CORS em produção
+if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
+  console.error('❌ ERRO CRÍTICO: ALLOWED_ORIGINS não está definido em produção!');
+  console.error('Configure ALLOWED_ORIGINS no .env com os domínios permitidos.');
+  console.error('Exemplo: ALLOWED_ORIGINS=https://seu-dominio.com,https://www.seu-dominio.com');
+  process.exit(1);
+}
+
 // NOVO: Configuração do CORS
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production'
-    ? process.env.ALLOWED_ORIGINS?.split(',') || false // Em produção, apenas origens específicas
+    ? process.env.ALLOWED_ORIGINS?.split(',') // Em produção, apenas origens específicas
     : true, // Em desenvolvimento, permite todas as origens
   credentials: true, // Permite cookies
   optionsSuccessStatus: 200
@@ -54,21 +65,82 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// CORREÇÃO: Configuração do cliente Redis para sessões persistentes
+// Isso resolve problemas de vazamento de memória e permite scaling horizontal
+let redisClient;
+let sessionStore;
+
+if (process.env.NODE_ENV === 'production' || process.env.USE_REDIS === 'true') {
+  try {
+    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    console.log(`📦 Conectando ao Redis: ${redisUrl}`);
+
+    redisClient = createClient({
+      url: redisUrl,
+      socket: {
+        reconnectStrategy: (retries) => {
+          if (retries > 10) {
+            console.error('❌ Redis: Máximo de tentativas de reconexão atingido');
+            return new Error('Máximo de tentativas de reconexão atingido');
+          }
+          const delay = Math.min(retries * 100, 3000);
+          console.log(`🔄 Redis: Tentando reconectar em ${delay}ms (tentativa ${retries})`);
+          return delay;
+        }
+      }
+    });
+
+    redisClient.on('error', (err) => {
+      console.error('❌ Erro no Redis:', err);
+    });
+
+    redisClient.on('connect', () => {
+      console.log('✅ Redis conectado com sucesso');
+    });
+
+    redisClient.on('ready', () => {
+      console.log('✅ Redis pronto para uso');
+    });
+
+    // Conecta ao Redis de forma assíncrona
+    redisClient.connect().catch(err => {
+      console.error('❌ Falha ao conectar ao Redis:', err);
+      console.warn('⚠️ Usando MemoryStore como fallback (NÃO RECOMENDADO EM PRODUÇÃO)');
+      redisClient = null;
+    });
+
+    if (redisClient) {
+      sessionStore = new RedisStore({
+        client: redisClient,
+        prefix: 'cinepremium:sess:',
+        ttl: 8 * 60 * 60 // 8 horas em segundos
+      });
+    }
+  } catch (error) {
+    console.error('❌ Erro ao configurar Redis:', error);
+    console.warn('⚠️ Usando MemoryStore como fallback (NÃO RECOMENDADO EM PRODUÇÃO)');
+  }
+} else {
+  console.warn('⚠️ Usando MemoryStore para sessões (apenas desenvolvimento)');
+  console.warn('💡 Para produção, configure REDIS_URL no .env');
+}
+
 // NOVO: Configuração do middleware de sessão
 app.use(cookieParser());
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'fallback-secret-change-this', // Chave secreta para assinar o cookie da sessão
+  store: sessionStore, // CORREÇÃO: Usa RedisStore se disponível, senão MemoryStore
+  secret: process.env.SESSION_SECRET || 'fallback-secret-change-this',
   resave: false,
-  saveUninitialized: false, // Mudado para false para segurança
-  name: 'sessionId', // Nome customizado do cookie
-  proxy: true, // CRÍTICO: Necessário quando atrás de proxy reverso
+  saveUninitialized: false,
+  name: 'sessionId',
+  proxy: true,
   cookie: {
-    maxAge: 8 * 60 * 60 * 1000, // A sessão expira em 8 horas
-    httpOnly: true, // Previne acesso via JavaScript (XSS)
-    secure: process.env.NODE_ENV === 'production', // Apenas HTTPS em produção
-    sameSite: 'lax', // 'lax' funciona melhor com redirects em produção
-    path: '/', // Explicitamente define o path
-    domain: process.env.COOKIE_DOMAIN || undefined // Permite configurar domínio se necessário
+    maxAge: 8 * 60 * 60 * 1000, // 8 horas
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    domain: process.env.COOKIE_DOMAIN || undefined
   }
 }));
 
@@ -244,15 +316,26 @@ app.post('/auth', loginLimiter, async (req, res) => {
     }
 
     if (isPasswordValid) {
-      req.session.loggedin = true;
-      req.session.save((err) => {
+      // CORREÇÃO: Regenera o session ID para prevenir session fixation
+      req.session.regenerate((err) => {
         if (err) {
-          console.error('[AUTH] Erro ao salvar sessão:', err);
+          console.error('[AUTH] Erro ao regenerar sessão:', err);
           return res.redirect('/login?error=1');
         }
-        console.log('[AUTH] Login bem-sucedido. Session ID:', req.sessionID);
-        console.log('[AUTH] Session loggedin:', req.session.loggedin);
-        res.redirect('/admin');
+
+        // Define a sessão como logada
+        req.session.loggedin = true;
+
+        // Salva a sessão
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error('[AUTH] Erro ao salvar sessão:', saveErr);
+            return res.redirect('/login?error=1');
+          }
+          console.log('[AUTH] Login bem-sucedido. Novo Session ID:', req.sessionID);
+          console.log('[AUTH] Session loggedin:', req.session.loggedin);
+          res.redirect('/admin');
+        });
       });
     } else {
       console.log('[AUTH] Senha incorreta');
@@ -268,9 +351,11 @@ app.post('/auth', loginLimiter, async (req, res) => {
 app.get('/logout', (req, res) => {
   req.session.destroy((err) => {
     if (err) {
+      console.error('[LOGOUT] Erro ao destruir sessão:', err);
       return res.redirect('/admin'); // Se houver erro, volta para o admin
     }
-    res.clearCookie('connect.sid'); // Limpa o cookie da sessão
+    // CORREÇÃO: Nome correto do cookie (definido em session config como 'sessionId')
+    res.clearCookie('sessionId');
     res.redirect('/login');
   });
 });
@@ -348,29 +433,48 @@ const ONDAPAY_CLIENT_SECRET = process.env.ONDAPAY_CLIENT_SECRET;
 const WEBHOOK_URL = "https://cinepremiumedit.domcloud.dev/ondapay-webhook";
 
 let ondaPayToken = null;
+let tokenPromise = null; // CORREÇÃO: Promise cache para evitar race conditions
 
 // Função para obter/renovar o token de autenticação
-// MODIFICADO: A função agora aceita um parâmetro para forçar a renovação
+// CORREÇÃO: Implementa lock via promise caching para evitar múltiplas chamadas simultâneas
 async function getOndaPayToken(forceNew = false) {
+  // Se já temos um token válido e não estamos forçando renovação, retorna
   if (ondaPayToken && !forceNew) {
     return ondaPayToken;
   }
-  try {
-    const response = await axios.post(`${ONDAPAY_API_URL}/api/v1/login`, {}, {
-      headers: {
-        'client_id': ONDAPAY_CLIENT_ID,
-        'client_secret': ONDAPAY_CLIENT_SECRET,
-        'Content-Type': 'application/json'
-      }
-    });
-    ondaPayToken = response.data.token;
-    console.log("Token da OndaPay obtido/renovado com sucesso.");
-    return ondaPayToken;
-  } catch (error) {
-    console.error("Erro ao obter token da OndaPay:", error.response ? error.response.data : error.message);
-    ondaPayToken = null; 
-    throw new Error("Não foi possível autenticar com o serviço de pagamento.");
+
+  // CORREÇÃO: Se já existe uma requisição em andamento, retorna a mesma promise
+  // Isso evita que múltiplas requisições simultâneas façam múltiplas chamadas à API
+  if (tokenPromise && !forceNew) {
+    console.log('[OndaPay] Requisição de token já em andamento, aguardando...');
+    return tokenPromise;
   }
+
+  // Cria uma nova promise e armazena no cache
+  tokenPromise = (async () => {
+    try {
+      console.log('[OndaPay] Solicitando novo token...');
+      const response = await axios.post(`${ONDAPAY_API_URL}/api/v1/login`, {}, {
+        headers: {
+          'client_id': ONDAPAY_CLIENT_ID,
+          'client_secret': ONDAPAY_CLIENT_SECRET,
+          'Content-Type': 'application/json'
+        }
+      });
+      ondaPayToken = response.data.token;
+      console.log("✅ Token da OndaPay obtido/renovado com sucesso.");
+      return ondaPayToken;
+    } catch (error) {
+      console.error("❌ Erro ao obter token da OndaPay:", error.response ? error.response.data : error.message);
+      ondaPayToken = null;
+      throw new Error("Não foi possível autenticar com o serviço de pagamento.");
+    } finally {
+      // Limpa o cache da promise após conclusão (sucesso ou erro)
+      tokenPromise = null;
+    }
+  })();
+
+  return tokenPromise;
 }
 
 // --- ROTAS PÚBLICAS (Acessíveis sem login) ---
@@ -460,7 +564,7 @@ app.post('/gerarqrcode', async (req, res) => {
       return res.status(400).json({ error: "Nome deve ter no mínimo 3 caracteres." });
     }
     
-    // ... (lógica de verificação de tentativas de compra inalterada) ...
+    // Verificação de tentativas de compra
     const now = new Date();
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -469,66 +573,86 @@ app.post('/gerarqrcode', async (req, res) => {
     if (attemptsLastHour >= 3 || attemptsLastMonth >= 5) {
       return res.status(429).json({ error: 'Você já tentou pagar muitas vezes, procure seu vendedor ou tente novamente depois de algumas horas.' });
     }
-    
-    const purchaseRecord = await PurchaseHistory.create({ nome, telefone, status: 'Gerado' });
-    const expirationDate = new Date();
-    expirationDate.setMinutes(expirationDate.getMinutes() + 30);
-    const pad = (num) => String(num).padStart(2, '0');
-    const dueDateFormatted = `${expirationDate.getFullYear()}-${pad(expirationDate.getMonth() + 1)}-${pad(expirationDate.getDate())} ${pad(expirationDate.getHours())}:${pad(expirationDate.getMinutes())}:${pad(expirationDate.getSeconds())}`;
 
-    // NOVO: Envia notificação de nova venda
-    sendPushNotification(
-      'Nova Tentativa de Venda!',
-      `${nome} gerou um QR Code para pagamento.`
-    );
+    // CORREÇÃO: Usa transação para garantir atomicidade
+    // Se qualquer operação falhar, nada é salvo no banco
+    const t = await sequelize.transaction();
 
-
-    const payload = {
-      amount: parseFloat((value / 100).toFixed(2)),
-      external_id: purchaseRecord.id.toString(),
-      webhook: WEBHOOK_URL,
-      description: `${productTitle} - ${productDescription || ''}`,
-      dueDate: dueDateFormatted,
-      payer: { name: nome, document: cpf.replace(/\D/g, ''), email: email }
-    };
-    
-    // NOVO: Lógica de tentativa e renovação do token
-    let token = await getOndaPayToken();
-    let response;
-    
     try {
-      // Primeira tentativa com o token atual
-      response = await axios.post(`${ONDAPAY_API_URL}/api/v1/deposit/pix`, payload, {
-        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }
-      });
-    } catch (error) {
-      // Se a primeira tentativa falhar com erro 401 (Não Autorizado), o token provavelmente expirou
-      if (error.response && error.response.status === 401) {
-        console.log("Token da OndaPay expirado. Renovando e tentando novamente...");
-        // Força a obtenção de um novo token
-        token = await getOndaPayToken(true); 
-        // Segunda (e última) tentativa com o novo token
+      // Cria registro de compra dentro da transação
+      const purchaseRecord = await PurchaseHistory.create(
+        { nome, telefone, status: 'Gerado' },
+        { transaction: t }
+      );
+
+      const expirationDate = new Date();
+      expirationDate.setMinutes(expirationDate.getMinutes() + 30);
+      const pad = (num) => String(num).padStart(2, '0');
+      const dueDateFormatted = `${expirationDate.getFullYear()}-${pad(expirationDate.getMonth() + 1)}-${pad(expirationDate.getDate())} ${pad(expirationDate.getHours())}:${pad(expirationDate.getMinutes())}:${pad(expirationDate.getSeconds())}`;
+
+      const payload = {
+        amount: parseFloat((value / 100).toFixed(2)),
+        external_id: purchaseRecord.id.toString(),
+        webhook: WEBHOOK_URL,
+        description: `${productTitle} - ${productDescription || ''}`,
+        dueDate: dueDateFormatted,
+        payer: { name: nome, document: cpf.replace(/\D/g, ''), email: email }
+      };
+
+      // Obtém token e faz chamada à API OndaPay
+      let token = await getOndaPayToken();
+      let response;
+
+      try {
+        // Primeira tentativa com o token atual
         response = await axios.post(`${ONDAPAY_API_URL}/api/v1/deposit/pix`, payload, {
           headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }
         });
-      } else {
-        // Se o erro for diferente de 401, propaga o erro para ser tratado abaixo
-        throw error;
+      } catch (error) {
+        // Se a primeira tentativa falhar com erro 401, o token provavelmente expirou
+        if (error.response && error.response.status === 401) {
+          console.log("Token da OndaPay expirado. Renovando e tentando novamente...");
+          token = await getOndaPayToken(true);
+          response = await axios.post(`${ONDAPAY_API_URL}/api/v1/deposit/pix`, payload, {
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }
+          });
+        } else {
+          throw error;
+        }
       }
+
+      const data = response.data;
+
+      // Atualiza com transactionId dentro da mesma transação
+      await purchaseRecord.update(
+        { transactionId: data.id_transaction },
+        { transaction: t }
+      );
+
+      // CORREÇÃO: Só commita se TUDO deu certo
+      await t.commit();
+
+      // Envia notificação de nova venda (após commit)
+      sendPushNotification(
+        'Nova Tentativa de Venda!',
+        `${nome} gerou um QR Code para pagamento.`
+      );
+
+      const resultado = {
+        id: data.id_transaction,
+        qr_code: data.qrcode,
+        qr_code_base64: data.qrcode_base64,
+        expirationTimestamp: expirationDate.getTime()
+      };
+
+      console.log("✅ QR Code gerado (OndaPay):", resultado.id);
+      res.json(resultado);
+    } catch (transactionError) {
+      // CORREÇÃO: Se qualquer coisa falhar, faz rollback
+      await t.rollback();
+      console.error('❌ Erro na transação, rollback executado:', transactionError.message);
+      throw transactionError; // Re-lança para o catch externo tratar
     }
-
-    const data = response.data;
-    await purchaseRecord.update({ transactionId: data.id_transaction });
-    
-    const resultado = {
-      id: data.id_transaction,
-      qr_code: data.qrcode,
-      qr_code_base64: data.qrcode_base64,
-      expirationTimestamp: expirationDate.getTime()
-    };
-
-    console.log("QR Code gerado (OndaPay):", resultado.id);
-    res.json(resultado);
   } catch (error) {
     let errorMessage = "Erro interno ao gerar QR code.";
     if (error.response && error.response.data && error.response.data.msg) {
@@ -590,26 +714,30 @@ app.post('/ondapay-webhook', async (req, res) => {
           return res.status(400).send('external_id inválido.');
         }
 
-        console.log(`[WEBHOOK LOG] Tentando atualizar o registro com ID: ${purchaseId} para 'Sucesso'.`);
-        const [updatedRows] = await PurchaseHistory.update(
-          { status: 'Sucesso' },
-          { where: { id: purchaseId } }
-        );
+        // CORREÇÃO: Busca o registro primeiro para verificar se já foi processado (idempotência)
+        const purchase = await PurchaseHistory.findByPk(purchaseId);
 
-        if (updatedRows > 0) {
-            console.log(`[WEBHOOK LOG] SUCESSO! ${updatedRows} registro(s) atualizado(s) para a compra ID ${purchaseId}.`);
-            // Precisamos buscar o nome do cliente para a notificação
-            const purchase = await PurchaseHistory.findByPk(purchaseId);
-            if (purchase) {
-              // NOVO: Envia notificação de pagamento confirmado
-              sendPushNotification(
-                'Venda Paga com Sucesso!',
-                `O pagamento de ${purchase.nome} foi confirmado.`
-              );
-            }
-        } else {
-            console.warn(`[WEBHOOK LOG] AVISO: Nenhum registro encontrado ou atualizado para o ID de compra ${purchaseId}. Verifique se o external_id está correto.`);
+        if (!purchase) {
+          console.error(`[WEBHOOK LOG] Erro: Compra com ID ${purchaseId} não encontrada.`);
+          return res.status(404).send('Compra não encontrada.');
         }
+
+        // CORREÇÃO: Se já foi processado, retorna sucesso sem fazer nada (idempotência)
+        if (purchase.status === 'Sucesso') {
+          console.log(`[WEBHOOK LOG] Webhook duplicado ignorado. Compra ${purchaseId} já foi processada.`);
+          return res.status(200).send({ status: 'already_processed' });
+        }
+
+        // Atualiza o status
+        console.log(`[WEBHOOK LOG] Atualizando o registro com ID: ${purchaseId} para 'Sucesso'.`);
+        await purchase.update({ status: 'Sucesso' });
+        console.log(`[WEBHOOK LOG] SUCESSO! Compra ID ${purchaseId} atualizada.`);
+
+        // Envia notificação push apenas uma vez
+        sendPushNotification(
+          'Venda Paga com Sucesso!',
+          `O pagamento de ${purchase.nome} foi confirmado.`
+        );
       } else {
         console.log(`[WEBHOOK LOG] Status recebido foi '${status}'. Nenhuma ação necessária.`);
       }
@@ -779,7 +907,30 @@ app.post('/api/devices', requireLogin, async (req, res) => {
 // Esta rota expunha informações sensíveis e foi removida
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-  await getOndaPayToken();
-});
+
+// CORREÇÃO: Função de inicialização assíncrona
+// Obtém token OndaPay ANTES de iniciar o servidor
+async function startServer() {
+  try {
+    console.log('🚀 Inicializando servidor...');
+
+    // Obtém token OndaPay antes de aceitar requisições
+    console.log('📡 Obtendo token OndaPay...');
+    await getOndaPayToken();
+    console.log('✅ Token OndaPay obtido com sucesso');
+
+    // Agora sim inicia o servidor
+    app.listen(PORT, () => {
+      console.log(`✅ Servidor rodando na porta ${PORT}`);
+      console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
+      console.log('✨ Sistema pronto para receber requisições');
+    });
+  } catch (error) {
+    console.error('❌ Erro ao inicializar servidor:', error);
+    console.error('💥 O servidor não foi iniciado devido a erros críticos');
+    process.exit(1);
+  }
+}
+
+// Inicia o servidor
+startServer();
