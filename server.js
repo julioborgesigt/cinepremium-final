@@ -21,6 +21,10 @@ const bcrypt = require('bcrypt');
 
 const app = express();
 
+// CRÍTICO: Confiar no proxy reverso (necessário para domcloud.co, heroku, etc)
+// Isso permite que o Express reconheça HTTPS quando atrás de um proxy
+app.set('trust proxy', 1);
+
 // NOVO: Configuração do CORS
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production'
@@ -57,14 +61,37 @@ app.use(session({
   resave: false,
   saveUninitialized: false, // Mudado para false para segurança
   name: 'sessionId', // Nome customizado do cookie
+  proxy: true, // CRÍTICO: Necessário quando atrás de proxy reverso
   cookie: {
     maxAge: 8 * 60 * 60 * 1000, // A sessão expira em 8 horas
     httpOnly: true, // Previne acesso via JavaScript (XSS)
     secure: process.env.NODE_ENV === 'production', // Apenas HTTPS em produção
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax' // Lax em dev para evitar problemas
+    sameSite: 'lax', // 'lax' funciona melhor com redirects em produção
+    path: '/', // Explicitamente define o path
+    domain: process.env.COOKIE_DOMAIN || undefined // Permite configurar domínio se necessário
   }
 }));
 
+// NOVO: Middleware de debug para sessão (apenas em produção)
+if (process.env.NODE_ENV === 'production' || process.env.DEBUG_SESSION === 'true') {
+  app.use((req, res, next) => {
+    if (req.path === '/auth' || req.path === '/admin') {
+      console.log('[SESSION DEBUG]', {
+        path: req.path,
+        protocol: req.protocol,
+        secure: req.secure,
+        hostname: req.hostname,
+        sessionID: req.sessionID,
+        hasSession: !!req.session,
+        loggedin: req.session?.loggedin,
+        cookieHeader: req.headers.cookie,
+        forwardedProto: req.headers['x-forwarded-proto'],
+        forwardedHost: req.headers['x-forwarded-host']
+      });
+    }
+    next();
+  });
+}
 
 // NOVO: Inicializa o Firebase Admin SDK
 // MODIFICADO: Inicializa o Firebase Admin SDK a partir da variável de ambiente
