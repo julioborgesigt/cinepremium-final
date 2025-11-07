@@ -13,7 +13,8 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
     },
     status: {
-      type: DataTypes.STRING,
+      // CORREÇÃO: Usar ENUM ao invés de STRING para validação
+      type: DataTypes.ENUM('Gerado', 'Sucesso', 'Falhou', 'Expirado'),
       allowNull: false,
       defaultValue: 'Gerado',
     },
@@ -30,7 +31,34 @@ module.exports = (sequelize, DataTypes) => {
     }
   }, {
     tableName: 'purchase_histories',
-    timestamps: false
+    timestamps: false,
+    // CORREÇÃO: Adicionar índices para melhorar performance
+    indexes: [
+      {
+        name: 'idx_telefone',
+        fields: ['telefone']
+      },
+      {
+        name: 'idx_dataTransacao',
+        fields: ['dataTransacao']
+      },
+      {
+        name: 'idx_telefone_dataTransacao',
+        fields: ['telefone', 'dataTransacao']
+      },
+      {
+        name: 'idx_transactionId',
+        fields: ['transactionId'],
+        unique: true,
+        where: {
+          transactionId: { [sequelize.Sequelize.Op.ne]: null }
+        }
+      },
+      {
+        name: 'idx_status',
+        fields: ['status']
+      }
+    ]
   });
   return PurchaseHistory;
 };
