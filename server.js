@@ -17,6 +17,7 @@ const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
 
 const app = express();
 
@@ -179,14 +180,37 @@ const loginLimiter = rateLimit({
   skipSuccessfulRequests: true // Não conta logins bem-sucedidos
 });
 
-// NOVO: Rota para validar as credenciais enviadas pelo formulário de login
-app.post('/auth', loginLimiter, (req, res) => {
+// MODIFICADO: Rota de autenticação com suporte a bcrypt
+app.post('/auth', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
-  // Compara os dados do formulário com as variáveis de ambiente seguras
-  if (username === process.env.ADMIN_USER && password === process.env.ADMIN_PASS) {
-    req.session.loggedin = true; // Se as credenciais estiverem corretas, cria a sessão
-    res.redirect('/admin'); // Redireciona para o painel de admin
-  } else {
+
+  try {
+    // Valida username
+    if (username !== process.env.ADMIN_USER) {
+      return res.redirect('/login?error=1');
+    }
+
+    // Verifica se a senha está em formato de hash bcrypt (começa com $2b$ ou $2a$)
+    const passwordHash = process.env.ADMIN_PASS;
+    let isPasswordValid = false;
+
+    if (passwordHash && (passwordHash.startsWith('$2b$') || passwordHash.startsWith('$2a$'))) {
+      // Senha está em formato bcrypt hash
+      isPasswordValid = await bcrypt.compare(password, passwordHash);
+    } else {
+      // Backward compatibility: senha em texto plano
+      console.warn('⚠️ AVISO: Senha do admin está em texto plano. Use bcrypt para maior segurança.');
+      isPasswordValid = (password === passwordHash);
+    }
+
+    if (isPasswordValid) {
+      req.session.loggedin = true;
+      res.redirect('/admin');
+    } else {
+      res.redirect('/login?error=1');
+    }
+  } catch (error) {
+    console.error('Erro na autenticação:', error);
     res.redirect('/login?error=1');
   }
 });
@@ -450,27 +474,39 @@ app.post('/gerarqrcode', async (req, res) => {
   }
 });
 
-// Webhook para receber confirmação de pagamento
-// ⚠️ IMPORTANTE: Este webhook deve ter verificação de assinatura em produção!
-// A OndaPay envia um header de assinatura para validar a autenticidade do webhook.
-// TODO: Implementar verificação de assinatura HMAC
+// CORRIGIDO: Webhook com verificação de assinatura HMAC implementada
 app.post('/ondapay-webhook', async (req, res) => {
     console.log('--- [WEBHOOK LOG] --- Webhook Recebido. Corpo da requisição:');
     console.log(JSON.stringify(req.body, null, 2));
     console.log('--- [WEBHOOK LOG] --- Fim do corpo da requisição.');
 
-    // TODO: CRÍTICO - Adicionar verificação de assinatura
-    // Exemplo de implementação:
-    // const signature = req.headers['x-ondapay-signature'];
-    // const crypto = require('crypto');
-    // const computedSignature = crypto
-    //   .createHmac('sha256', process.env.ONDAPAY_WEBHOOK_SECRET)
-    //   .update(JSON.stringify(req.body))
-    //   .digest('hex');
-    // if (signature !== computedSignature) {
-    //   console.error('[WEBHOOK LOG] Assinatura inválida! Possível tentativa de fraude.');
-    //   return res.status(401).send('Assinatura inválida.');
-    // }
+    // Verificação de assinatura HMAC
+    if (process.env.ONDAPAY_WEBHOOK_SECRET) {
+      const signature = req.headers['x-ondapay-signature'];
+
+      if (!signature) {
+        console.error('[WEBHOOK LOG] Assinatura não fornecida no header. Possível tentativa de fraude.');
+        return res.status(401).send('Assinatura não fornecida.');
+      }
+
+      const crypto = require('crypto');
+      const computedSignature = crypto
+        .createHmac('sha256', process.env.ONDAPAY_WEBHOOK_SECRET)
+        .update(JSON.stringify(req.body))
+        .digest('hex');
+
+      // Comparação segura contra timing attacks
+      if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(computedSignature))) {
+        console.error('[WEBHOOK LOG] Assinatura inválida! Possível tentativa de fraude.');
+        console.error('[WEBHOOK LOG] Assinatura recebida:', signature);
+        console.error('[WEBHOOK LOG] Assinatura esperada:', computedSignature);
+        return res.status(401).send('Assinatura inválida.');
+      }
+
+      console.log('[WEBHOOK LOG] Assinatura verificada com sucesso.');
+    } else {
+      console.warn('[WEBHOOK LOG] ⚠️ AVISO: ONDAPAY_WEBHOOK_SECRET não está configurado. Webhook NÃO ESTÁ SEGURO!');
+    }
 
     try {
       const { status, transaction_id, external_id } = req.body;

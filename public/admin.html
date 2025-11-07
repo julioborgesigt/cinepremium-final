@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net https://firebaseinstallations.googleapis.com https://fcmregistrations.googleapis.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://firebaseinstallations.googleapis.com https://fcmregistrations.googleapis.com https://fcm.googleapis.com; font-src 'self' data:;">
   <title>Admin - Produtos</title>
   <style>
     /* Estilos Gerais */
@@ -207,6 +208,35 @@
         width: 100%;
       }
     }
+
+    /* NOVO: Estilos para Toast Notifications */
+    .toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #333;
+      color: #fff;
+      padding: 15px 20px;
+      border-radius: 5px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+      max-width: 90%;
+      word-wrap: break-word;
+    }
+    .toast.show {
+      opacity: 1;
+    }
+    .toast.success {
+      background: #4CAF50;
+    }
+    .toast.error {
+      background: #f44336;
+    }
+    .toast.warning {
+      background: #ff9800;
+    }
   </style>
 </head>
 <body>
@@ -243,10 +273,31 @@
 
     <div id="historyResults"></div>
   </div>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-messaging-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
   <script>
+
+    // NOVO: Função para exibir toast notifications
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+
+      // Força reflow para aplicar transição
+      void toast.offsetWidth;
+      toast.classList.add('show');
+
+      setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+          if (toast.parentNode) {
+            document.body.removeChild(toast);
+          }
+        }, 300);
+      }, 3000);
+    }
 
     // NOVO: Função centralizada para fazer chamadas de API com tratamento de sessão expirada
         async function authenticatedFetch(url, options = {}) {
@@ -256,9 +307,11 @@
                 // Se a resposta for 401 (Não Autorizado), a sessão expirou
                 if (response.status === 401) {
                     const data = await response.json();
-                    alert(data.error || 'Sua sessão expirou, faça o login novamente.');
+                    showToast(data.error || 'Sua sessão expirou, faça o login novamente.', 'error');
                     // Redireciona para a página de login
-                    window.location.href = '/login';
+                    setTimeout(() => {
+                      window.location.href = '/login';
+                    }, 1500);
                     // Lança um erro para parar a execução do código que chamou esta função
                     throw new Error('Sessão expirada');
                 }
@@ -270,8 +323,10 @@
                     throw error;
                 }
                 // Para outros erros de rede, etc.
-                console.error('Erro na chamada da API:', error);
-                alert('Ocorreu um erro de comunicação com o servidor.');
+                if (typeof console !== 'undefined' && console.error) {
+                  console.error('Erro na chamada da API:', error);
+                }
+                showToast('Ocorreu um erro de comunicação com o servidor.', 'error');
                 throw error;
             }
         }
@@ -301,12 +356,12 @@
       
       // Verifica se a imagem foi selecionada
       if (!image) {
-        alert('Por favor, selecione uma imagem.');
+        showToast('Por favor, selecione uma imagem.', 'warning');
         return;
       }
 
       const product = { title, price, image, description };
-      
+
       try {
         const response = await authenticatedFetch('/api/products', {
           method: 'POST',
@@ -314,22 +369,24 @@
           body: JSON.stringify(product)
         });
         if (!response.ok) {
-          throw new Error('Erro ao adicionar produto');
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Erro ao adicionar produto');
         }
-        alert('Produto adicionado com sucesso!');
+        showToast('Produto adicionado com sucesso!', 'success');
         document.getElementById('productForm').reset();
         document.getElementById('imageBase64').value = ''; // Limpa o campo oculto
         loadProducts();
       } catch (error) {
-                // O erro de sessão expirada já é tratado dentro do authenticatedFetch,
-                // então aqui só precisamos nos preocupar com outros erros.
-                if (error.message !== 'Sessão expirada') {
-                    alert(error);
-                }
-            }
+        // O erro de sessão expirada já é tratado dentro do authenticatedFetch,
+        // então aqui só precisamos nos preocupar com outros erros.
+        if (error.message !== 'Sessão expirada') {
+          showToast(error.message, 'error');
+        }
+      }
     });
     
     // Carrega os produtos e exibe-os em cards
+    // CORRIGIDO: Removido innerHTML para prevenir XSS
     async function loadProducts() {
       try {
         const response = await authenticatedFetch('/api/products');
@@ -339,15 +396,39 @@
         products.forEach(product => {
           const card = document.createElement('div');
           card.className = 'product-card';
-          // Atribui o id do produto via atributo data
           card.setAttribute('data-id', product.id);
-          card.innerHTML = `
-            <button class="delete-button" onclick="deleteProduct(${product.id})">x</button>
-            <img src="${product.image}" alt="${product.title}">
-            <h3>${product.title}</h3>
-            <p>Preço: R$${(product.price/100).toFixed(2)}</p>
-            <p>${product.description || ''}</p>
-          `;
+
+          // Botão de deletar
+          const deleteBtn = document.createElement('button');
+          deleteBtn.className = 'delete-button';
+          deleteBtn.textContent = 'x';
+          deleteBtn.addEventListener('click', () => deleteProduct(product.id));
+
+          // Imagem
+          const img = document.createElement('img');
+          img.src = product.image;
+          img.alt = product.title;
+          img.onerror = function() { this.style.display = 'none'; };
+
+          // Título
+          const title = document.createElement('h3');
+          title.textContent = product.title;
+
+          // Preço
+          const price = document.createElement('p');
+          price.textContent = `Preço: R$${(product.price/100).toFixed(2)}`;
+
+          // Descrição
+          const desc = document.createElement('p');
+          desc.textContent = product.description || '';
+
+          // Monta o card
+          card.appendChild(deleteBtn);
+          card.appendChild(img);
+          card.appendChild(title);
+          card.appendChild(price);
+          card.appendChild(desc);
+
           grid.appendChild(card);
         });
         // Inicializa o Sortable para reordenar os cards
@@ -393,23 +474,25 @@
     }
     
     // Função para excluir um produto
+    // CORRIGIDO: Substituído alert() por showToast()
     async function deleteProduct(productId) {
-            if (!confirm('Tem certeza que deseja excluir este produto?')) return;
-            try {
-                const response = await authenticatedFetch(`/api/products/${productId}`, { // MUDANÇA AQUI
-                    method: 'DELETE'
-                });
-                if (!response.ok) {
-                    throw new Error('Erro ao excluir produto');
-                }
-                alert('Produto excluído com sucesso!');
-                loadProducts();
-            } catch (error) {
-                if (error.message !== 'Sessão expirada') {
-                    alert(error);
-                }
-            }
+      if (!confirm('Tem certeza que deseja excluir este produto?')) return;
+      try {
+        const response = await authenticatedFetch(`/api/products/${productId}`, {
+          method: 'DELETE'
+        });
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Erro ao excluir produto');
         }
+        showToast('Produto excluído com sucesso!', 'success');
+        loadProducts();
+      } catch (error) {
+        if (error.message !== 'Sessão expirada') {
+          showToast(error.message, 'error');
+        }
+      }
+    }
     
     function carregarMesAno() {
       const selectMes = document.getElementById('mes');
@@ -432,6 +515,7 @@
       }
     }
 
+    // CORRIGIDO: Removido innerHTML para prevenir XSS
     async function loadHistory() {
       const nome = document.getElementById('searchNome')?.value.trim() || "";
       const telefone = document.getElementById('searchTelefone')?.value.trim() || "";
@@ -449,27 +533,62 @@
         resultsDiv.innerHTML = '';
 
         if (history.length === 0) {
-          resultsDiv.innerHTML = '<p>Nenhum registro encontrado.</p>';
+          const noResultsMsg = document.createElement('p');
+          noResultsMsg.textContent = 'Nenhum registro encontrado.';
+          resultsDiv.appendChild(noResultsMsg);
           return;
         }
 
-        let html = '<table border="1" style="width:100%; text-align:left;">';
-        html += '<tr><th>Nome</th><th>Telefone</th><th>Data/Hora</th><th>Status</th></tr>';
-        history.forEach(item => {
-          html += `<tr>
-            <td>${item.nome}</td>
-            <td>${formatPhone(item.telefone)}</td>
-            <td>${new Date(item.dataTransacao).toLocaleString('pt-BR')}</td>
-            <td>${item.status}</td>
-          </tr>`;
+        // Cria tabela com createElement
+        const table = document.createElement('table');
+        table.style.width = '100%';
+        table.style.textAlign = 'left';
+        table.setAttribute('border', '1');
+
+        // Cabeçalho da tabela
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        ['Nome', 'Telefone', 'Data/Hora', 'Status'].forEach(headerText => {
+          const th = document.createElement('th');
+          th.textContent = headerText;
+          headerRow.appendChild(th);
         });
-        html += '</table>';
-        resultsDiv.innerHTML = html;
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        // Corpo da tabela
+        const tbody = document.createElement('tbody');
+        history.forEach(item => {
+          const row = document.createElement('tr');
+
+          const nomeCell = document.createElement('td');
+          nomeCell.textContent = item.nome;
+          row.appendChild(nomeCell);
+
+          const telefoneCell = document.createElement('td');
+          telefoneCell.textContent = formatPhone(item.telefone);
+          row.appendChild(telefoneCell);
+
+          const dataCell = document.createElement('td');
+          dataCell.textContent = new Date(item.dataTransacao).toLocaleString('pt-BR');
+          row.appendChild(dataCell);
+
+          const statusCell = document.createElement('td');
+          statusCell.textContent = item.status;
+          row.appendChild(statusCell);
+
+          tbody.appendChild(row);
+        });
+        table.appendChild(tbody);
+        resultsDiv.appendChild(table);
       } catch (error) {
-                if (error.message !== 'Sessão expirada') {
-                    alert('Erro ao carregar histórico: ' + error);
-                }
-            }
+        if (error.message !== 'Sessão expirada') {
+          if (typeof console !== 'undefined' && console.error) {
+            console.error('Erro ao carregar histórico:', error);
+          }
+          showToast('Erro ao carregar histórico', 'error');
+        }
+      }
     }
 
     function formatPhone(value) {
@@ -504,52 +623,90 @@
         });
     }
 
-    // Código de inicialização do Firebase e gerenciamento de notificações (permanece o mesmo)
-    const firebaseConfig = {
-      apiKey: "AIzaSyAt-gad4dCXjqRrs5aVozVxdYsiv5dDL4c",
-      authDomain: "cinep-fb345.firebaseapp.com",
-      projectId: "cinep-fb345",
-      storageBucket: "cinep-fb345.firebasestorage.app",
-      messagingSenderId: "961799456736",
-      appId: "1:961799456736:web:3c67607bca49b853144d85"
-    };
-   
-    firebase.initializeApp(firebaseConfig);
-    // NOVO: Log para confirmar que a inicialização foi chamada
-    console.log('[Firebase JS] SDK do Firebase inicializado.');
-    const messaging = firebase.messaging()
+    // CORRIGIDO: Busca configuração do Firebase do backend ao invés de hardcoded
+    let messaging;
 
-    // NOVO: Este bloco de código escuta por notificações recebidas ENQUANTO a página está aberta e em primeiro plano.
-    messaging.onMessage((payload) => {
-      console.log('[Firebase JS] MENSAGEM RECEBIDA EM PRIMEIRO PLANO: ', payload);
-      // Para ter certeza de que você verá, vamos mostrar um alerta visual
-      alert(`-- NOTIFICAÇÃO DE TESTE RECEBIDA --\n\nTítulo: ${payload.notification.title}\nCorpo: ${payload.notification.body}`);
-    });
+    async function initializeFirebase() {
+      try {
+        const response = await fetch('/api/firebase-config');
+        if (!response.ok) {
+          throw new Error('Erro ao buscar configuração do Firebase');
+        }
+        const config = await response.json();
 
-    
-    function requestNotificationPermission() {
-      console.log('Solicitando permissão para notificações...');
+        // Remove vapidKey do config principal
+        const { vapidKey, ...firebaseConfig } = config;
+
+        firebase.initializeApp(firebaseConfig);
+        if (typeof console !== 'undefined' && console.log) {
+          console.log('[Firebase JS] SDK do Firebase inicializado.');
+        }
+
+        messaging = firebase.messaging();
+
+        // Escuta por notificações recebidas em primeiro plano
+        messaging.onMessage((payload) => {
+          if (typeof console !== 'undefined' && console.log) {
+            console.log('[Firebase JS] MENSAGEM RECEBIDA EM PRIMEIRO PLANO: ', payload);
+          }
+          // Mostra toast ao invés de alert
+          showToast(
+            `${payload.notification.title}: ${payload.notification.body}`,
+            'success'
+          );
+        });
+
+        return vapidKey;
+      } catch (error) {
+        if (typeof console !== 'undefined' && console.error) {
+          console.error('Erro ao inicializar Firebase:', error);
+        }
+        showToast('Erro ao inicializar notificações', 'error');
+        return null;
+      }
+    }
+
+    function requestNotificationPermission(vapidKey) {
+      if (!vapidKey || !messaging) {
+        showToast('Firebase não está configurado corretamente', 'error');
+        return;
+      }
+
+      if (typeof console !== 'undefined' && console.log) {
+        console.log('Solicitando permissão para notificações...');
+      }
+
       Notification.requestPermission().then((permission) => {
         if (permission === 'granted') {
-          console.log('Permissão para notificação concedida.');
-          
-          // Obtém o token do dispositivo
-         // MODIFICADO: Adicionamos a VAPID Key aqui
-          const vapidKey = "BKB2im987uEOxRH07nB3FvII90Jj7lunmP0C9q99a79EpwV8YHqNVOH3pXD7Lo1XK-v4pX_fuUzVpqdXbYIh7xo";
+          if (typeof console !== 'undefined' && console.log) {
+            console.log('Permissão para notificação concedida.');
+          }
 
           messaging.getToken({ vapidKey: vapidKey }).then((currentToken) => {
             if (currentToken) {
-              console.log('[Firebase JS] Conexão com Firebase bem-sucedida. Token obtido:', currentToken);
+              if (typeof console !== 'undefined' && console.log) {
+                console.log('[Firebase JS] Token obtido:', currentToken);
+              }
               sendTokenToServer(currentToken);
+              showToast('Notificações ativadas com sucesso!', 'success');
             } else {
-              console.error('[Firebase JS] Não foi possível obter o token.');
+              if (typeof console !== 'undefined' && console.error) {
+                console.error('[Firebase JS] Não foi possível obter o token.');
+              }
+              showToast('Erro ao obter token de notificação', 'error');
             }
           }).catch((err) => {
-            console.error('[Firebase JS] Ocorreu um erro ao obter o token.', err);
+            if (typeof console !== 'undefined' && console.error) {
+              console.error('[Firebase JS] Erro ao obter token:', err);
+            }
+            showToast('Erro ao configurar notificações', 'error');
           });
 
         } else {
-          console.warn('[Firebase JS] Permissão para notificação negada pelo usuário.');
+          if (typeof console !== 'undefined' && console.warn) {
+            console.warn('[Firebase JS] Permissão negada.');
+          }
+          showToast('Permissão para notificações negada', 'warning');
         }
       });
     }
@@ -574,15 +731,22 @@
       }
     }
 
-    // Adiciona um botão ou chama a função ao carregar a página
-    // Vamos adicionar um botão para o admin ativar as notificações
-    const notificationButton = document.createElement('button');
-    notificationButton.textContent = 'Ativar Notificações de Venda';
-    notificationButton.style.backgroundColor = '#28a745';
-    notificationButton.style.marginTop = '20px';
-    notificationButton.onclick = requestNotificationPermission;
-    // Insere o botão no container principal
-    document.querySelector('.container').prepend(notificationButton);
+    // CORRIGIDO: Inicializa Firebase e configura botão de notificações
+    let firebaseVapidKey = null;
+
+    // Inicializa Firebase quando a página carregar
+    initializeFirebase().then(vapidKey => {
+      firebaseVapidKey = vapidKey;
+
+      // Adiciona um botão para o admin ativar as notificações
+      const notificationButton = document.createElement('button');
+      notificationButton.textContent = 'Ativar Notificações de Venda';
+      notificationButton.style.backgroundColor = '#28a745';
+      notificationButton.style.marginTop = '20px';
+      notificationButton.onclick = () => requestNotificationPermission(firebaseVapidKey);
+      // Insere o botão no container principal
+      document.querySelector('.container').prepend(notificationButton);
+    });
     
   
 
