@@ -165,6 +165,9 @@ if (process.env.NODE_ENV === 'production' || process.env.DEBUG_SESSION === 'true
   });
 }
 
+// CORREÇÃO: Flag para rastrear se Firebase foi inicializado com sucesso
+let isFirebaseInitialized = false;
+
 // NOVO: Inicializa o Firebase Admin SDK
 // MODIFICADO: Inicializa o Firebase Admin SDK a partir da variável de ambiente
 // MODIFICADO: Inicializa o Firebase Admin SDK a partir de uma string Base64
@@ -185,11 +188,13 @@ try {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
   });
-  console.log('Firebase Admin SDK inicializado com sucesso via Base64.');
+  console.log('✅ Firebase Admin SDK inicializado com sucesso via Base64.');
+  isFirebaseInitialized = true; // CORREÇÃO: Marca como inicializado
 
 } catch (error) {
-  console.error('Erro CRÍTICO ao inicializar o Firebase Admin SDK:', error.message);
-  console.log('As notificações push não funcionarão.');
+  console.error('❌ Erro CRÍTICO ao inicializar o Firebase Admin SDK:', error.message);
+  console.warn('⚠️ As notificações push NÃO funcionarão.');
+  isFirebaseInitialized = false;
 }
 
 // NOVO: Função reutilizável para enviar notificações
@@ -197,8 +202,14 @@ try {
 
 // MODIFICADO: Função reutilizável para enviar notificações com logs detalhados
 async function sendPushNotification(title, body) {
+  // CORREÇÃO: Verifica se Firebase está inicializado antes de usar
+  if (!isFirebaseInitialized) {
+    console.warn('[PUSH LOG] ⚠️ Firebase não está disponível. Notificação não será enviada.');
+    return;
+  }
+
   console.log(`--- [PUSH LOG] --- Iniciando envio de notificação: "${title}"`);
-  
+
   try {
     const devices = await AdminDevice.findAll({
       attributes: ['token'],
@@ -253,13 +264,18 @@ async function sendPushNotification(title, body) {
 // MODIFICADO: O middleware agora trata requisições de API (fetch) de forma diferente
 // MODIFICADO: A verificação de API agora é baseada na URL
 function requireLogin(req, res, next) {
-  console.log('[REQUIRE_LOGIN] Path:', req.path);
-  console.log('[REQUIRE_LOGIN] Session ID:', req.sessionID);
-  console.log('[REQUIRE_LOGIN] Session loggedin:', req.session.loggedin);
-  console.log('[REQUIRE_LOGIN] Cookies:', req.cookies);
+  // CORREÇÃO: Só loga dados sensíveis em desenvolvimento
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[REQUIRE_LOGIN] Path:', req.path);
+    console.log('[REQUIRE_LOGIN] Session ID:', req.sessionID);
+    console.log('[REQUIRE_LOGIN] Session loggedin:', req.session.loggedin);
+    console.log('[REQUIRE_LOGIN] Cookies:', req.cookies);
+  }
 
   if (req.session.loggedin) {
-    console.log('[REQUIRE_LOGIN] ✅ Acesso permitido');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[REQUIRE_LOGIN] ✅ Acesso permitido');
+    }
     next();
   } else {
     console.log('[REQUIRE_LOGIN] ❌ Sessão não encontrada ou expirada');
@@ -291,7 +307,10 @@ app.post('/auth', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
 
   console.log('[AUTH] Tentativa de login para usuário:', username);
-  console.log('[AUTH] Session ID antes do login:', req.sessionID);
+  // CORREÇÃO: Não loga Session ID em produção
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[AUTH] Session ID antes do login:', req.sessionID);
+  }
 
   try {
     // Valida username
@@ -307,12 +326,18 @@ app.post('/auth', loginLimiter, async (req, res) => {
     if (passwordHash && (passwordHash.startsWith('$2b$') || passwordHash.startsWith('$2a$'))) {
       // Senha está em formato bcrypt hash
       isPasswordValid = await bcrypt.compare(password, passwordHash);
-      console.log('[AUTH] Verificação bcrypt:', isPasswordValid);
+      // CORREÇÃO: Não loga resultado de verificação em produção
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[AUTH] Verificação bcrypt:', isPasswordValid);
+      }
     } else {
       // Backward compatibility: senha em texto plano
       console.warn('⚠️ AVISO: Senha do admin está em texto plano. Use bcrypt para maior segurança.');
       isPasswordValid = (password === passwordHash);
-      console.log('[AUTH] Verificação texto plano:', isPasswordValid);
+      // CORREÇÃO: Não loga resultado de verificação em produção
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[AUTH] Verificação texto plano:', isPasswordValid);
+      }
     }
 
     if (isPasswordValid) {
@@ -332,8 +357,12 @@ app.post('/auth', loginLimiter, async (req, res) => {
             console.error('[AUTH] Erro ao salvar sessão:', saveErr);
             return res.redirect('/login?error=1');
           }
-          console.log('[AUTH] Login bem-sucedido. Novo Session ID:', req.sessionID);
-          console.log('[AUTH] Session loggedin:', req.session.loggedin);
+          console.log('[AUTH] ✅ Login bem-sucedido');
+          // CORREÇÃO: Não loga Session ID em produção
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('[AUTH] Novo Session ID:', req.sessionID);
+            console.log('[AUTH] Session loggedin:', req.session.loggedin);
+          }
           res.redirect('/admin');
         });
       });
@@ -654,13 +683,23 @@ app.post('/gerarqrcode', async (req, res) => {
       throw transactionError; // Re-lança para o catch externo tratar
     }
   } catch (error) {
-    let errorMessage = "Erro interno ao gerar QR code.";
-    if (error.response && error.response.data && error.response.data.msg) {
-        errorMessage = Object.values(error.response.data.msg)[0];
-        console.error("Erro da API OndaPay:", error.response.data);
+    // CORREÇÃO: Não expõe detalhes internos em produção
+    let errorMessage = "Erro ao gerar QR code. Tente novamente.";
+
+    // Log completo apenas no servidor (não exposto ao cliente)
+    if (error.response && error.response.data) {
+      console.error("❌ Erro da API OndaPay:", error.response.data);
+
+      // CORREÇÃO: Só expõe detalhes em desenvolvimento
+      if (process.env.NODE_ENV !== 'production') {
+        if (error.response.data.msg) {
+          errorMessage = Object.values(error.response.data.msg)[0];
+        }
+      }
     } else {
-        console.error("Erro ao gerar QR code:", error.message);
+      console.error("❌ Erro ao gerar QR code:", error.message);
     }
+
     res.status(400).json({ error: errorMessage });
   }
 });
