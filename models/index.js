@@ -28,16 +28,42 @@ const Product = require('./product')(sequelize, DataTypes);
 const PurchaseHistory = require('./purchaseHistory')(sequelize, DataTypes);
 const AdminDevice = require('./adminDevice')(sequelize, DataTypes);
 
-// MODIFICADO: Sincroniza os modelos com o banco
+// MODIFICADO: Sincroniza os modelos com o banco de forma mais robusta
 // ATENÇÃO: Em produção, prefira usar migrations do Sequelize
-// Para desenvolvimento, mantém alter:true, mas em produção use migrations
-const syncOptions = process.env.NODE_ENV === 'production'
-  ? { alter: false } // Não altera estrutura em produção
-  : { alter: true };  // Permite alterações em desenvolvimento
+// AdminDevice é sincronizado separadamente para evitar problema de "too many keys"
+async function syncDatabase() {
+  try {
+    // Sincroniza Product e PurchaseHistory com alter
+    const syncOptions = process.env.NODE_ENV === 'production'
+      ? { alter: false } // Não altera estrutura em produção
+      : { alter: true };  // Permite alterações em desenvolvimento
 
-sequelize.sync(syncOptions)
-  .then(() => console.log('Banco sincronizado com sucesso'))
-  .catch(err => console.error('Erro ao sincronizar o banco:', err));
+    await Product.sync(syncOptions);
+    await PurchaseHistory.sync(syncOptions);
+
+    // AdminDevice: tratamento especial para evitar erro de "too many keys"
+    try {
+      // Tenta sincronizar sem alteração
+      await AdminDevice.sync({ alter: false });
+    } catch (adminDeviceError) {
+      // Se falhar com erro de "too many keys", dropa e recria a tabela
+      if (adminDeviceError.parent && adminDeviceError.parent.code === 'ER_TOO_MANY_KEYS') {
+        console.log('Detectado problema de "too many keys" na tabela admin_devices. Recriando tabela...');
+        await AdminDevice.drop();
+        await AdminDevice.sync();
+        console.log('Tabela admin_devices recriada com sucesso.');
+      } else {
+        throw adminDeviceError;
+      }
+    }
+
+    console.log('Banco sincronizado com sucesso');
+  } catch (err) {
+    console.error('Erro ao sincronizar o banco:', err);
+  }
+}
+
+syncDatabase();
 
 // NOVO: Testa a conexão
 sequelize.authenticate()
