@@ -328,33 +328,51 @@ async function getOndaPayToken(forceNew = false) {
 
 // NOVO: Endpoint para fornecer configuração do Firebase ao frontend
 app.get('/api/firebase-config', (req, res) => {
-  // Retorna apenas as configurações públicas do Firebase
-  const firebaseConfig = {
-    apiKey: process.env.FIREBASE_API_KEY,
-    authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-    appId: process.env.FIREBASE_APP_ID,
-    vapidKey: process.env.FIREBASE_VAPID_KEY
-  };
+  try {
+    // Retorna apenas as configurações públicas do Firebase
+    const firebaseConfig = {
+      apiKey: process.env.FIREBASE_API_KEY,
+      authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+      appId: process.env.FIREBASE_APP_ID,
+      vapidKey: process.env.FIREBASE_VAPID_KEY
+    };
 
-  // Verifica se todas as variáveis estão definidas
-  const missingVars = Object.entries(firebaseConfig)
-    .filter(([key, value]) => !value)
-    .map(([key]) => key);
+    // Verifica se todas as variáveis estão definidas
+    const missingVars = Object.entries(firebaseConfig)
+      .filter(([key, value]) => !value)
+      .map(([key]) => key);
 
-  if (missingVars.length > 0) {
-    console.warn(`[Firebase Config] Variáveis faltando: ${missingVars.join(', ')}`);
-    // Em desenvolvimento, pode continuar. Em produção, retorna erro.
-    if (process.env.NODE_ENV === 'production') {
+    if (missingVars.length > 0) {
+      console.warn(`[Firebase Config] Variáveis faltando: ${missingVars.join(', ')}`);
+      // Em desenvolvimento, retorna configuração vazia mas válida
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[Firebase Config] Modo desenvolvimento: retornando configuração padrão');
+        return res.json({
+          apiKey: "",
+          authDomain: "",
+          projectId: "",
+          storageBucket: "",
+          messagingSenderId: "",
+          appId: "",
+          vapidKey: ""
+        });
+      }
+      // Em produção, retorna erro
       return res.status(500).json({
         error: 'Configuração do Firebase incompleta no servidor.'
       });
     }
-  }
 
-  res.json(firebaseConfig);
+    res.json(firebaseConfig);
+  } catch (error) {
+    console.error('[Firebase Config] Erro ao processar configuração:', error);
+    res.status(500).json({
+      error: 'Erro ao buscar configuração do Firebase'
+    });
+  }
 });
 
 // Endpoint para gerar QR Code de pagamento
