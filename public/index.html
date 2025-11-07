@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:;">
   <title>CinePremium Edit</title>
   <style>
     /* Estilos globais */
@@ -414,54 +415,102 @@
     }
     
     // Carrega os produtos do endpoint /api/products
+    // CORRIGIDO: Removido innerHTML para prevenir XSS
+    let cachedProducts = null; // Cache de produtos para evitar requisições duplicadas
+
     async function loadProducts() {
       try {
         const response = await fetch('/api/products');
-        const products = await response.json();
+        cachedProducts = await response.json();
         const grid = document.getElementById('productGrid');
         grid.innerHTML = '';
-        products.forEach(product => {
+
+        cachedProducts.forEach(product => {
           const card = document.createElement('div');
           card.className = 'product-card';
-          card.innerHTML = `
-            <img src="${product.image}" alt="${product.title}">
-            <h3>${product.title}</h3>
-            <p>R$ ${(product.price/100).toFixed(2)}</p>
-            <button class="button" onclick="selectProduct(${product.id})">Comprar</button>
-          `;
+
+          // Cria imagem
+          const img = document.createElement('img');
+          img.src = product.image;
+          img.alt = product.title;
+          img.onerror = function() { this.src = '/cinepremiumredondo.png'; }; // Fallback
+
+          // Cria título
+          const title = document.createElement('h3');
+          title.textContent = product.title;
+
+          // Cria preço
+          const price = document.createElement('p');
+          price.textContent = `R$ ${(product.price/100).toFixed(2)}`;
+
+          // Cria botão
+          const button = document.createElement('button');
+          button.className = 'button';
+          button.textContent = 'Comprar';
+          button.addEventListener('click', () => selectProduct(product.id));
+
+          // Monta o card
+          card.appendChild(img);
+          card.appendChild(title);
+          card.appendChild(price);
+          card.appendChild(button);
+
           grid.appendChild(card);
         });
       } catch (error) {
-        console.error('Erro ao carregar produtos:', error);
+        if (typeof console !== 'undefined' && console.error) {
+          console.error('Erro ao carregar produtos:', error);
+        }
+        showErrorToast('Erro ao carregar produtos. Tente novamente.');
       }
     }
     
     // Seleciona um produto e inicia o fluxo de checkout
-    async function selectProduct(productId) {
+    // CORRIGIDO: Usa cache ao invés de nova requisição
+    function selectProduct(productId) {
       try {
-        const response = await fetch('/api/products');
-        const products = await response.json();
-        selectedProduct = products.find(p => p.id == productId);
-        if (!selectedProduct) {
-          alert('Produto não encontrado');
+        // Usa o cache de produtos ao invés de nova requisição
+        if (!cachedProducts) {
+          showErrorToast('Erro ao carregar produtos. Recarregue a página.');
           return;
         }
-        document.getElementById('productInfo').textContent = 
+
+        selectedProduct = cachedProducts.find(p => p.id == productId);
+        if (!selectedProduct) {
+          showErrorToast('Produto não encontrado');
+          return;
+        }
+
+        // Usa textContent para segurança
+        const productInfo = document.getElementById('productInfo');
+        productInfo.textContent =
           `${selectedProduct.title} - ${selectedProduct.description || ''} por R$ ${(selectedProduct.price/100).toFixed(2)}`;
+
         document.getElementById('productGrid').style.display = 'none';
         document.getElementById('purchaseContainer').style.display = 'block';
         document.getElementById('qrDisplay').style.display = 'none';
         transactionId = null;
-        qrCodeExpirationTimestamp = null; // MODIFICADO: Reseta o timestamp ao selecionar novo produto
+        qrCodeExpirationTimestamp = null;
+
         if (pollingInterval) clearInterval(pollingInterval);
+
         // Limpa os campos de checkout e desabilita o botão
         document.getElementById('nome').value = '';
         document.getElementById('telefone').value = '';
         document.getElementById('cpf').value = '';
         document.getElementById('email').value = '';
+
+        // Remove classes de validação visual
+        ['nome', 'telefone', 'cpf', 'email'].forEach(id => {
+          document.getElementById(id).classList.remove('input-valid', 'input-invalid');
+        });
+
         validateCheckoutFields();
       } catch (error) {
-        alert('Erro ao selecionar produto: ' + error);
+        if (typeof console !== 'undefined' && console.error) {
+          console.error('Erro ao selecionar produto:', error);
+        }
+        showErrorToast('Erro ao selecionar produto');
       }
     }
     
@@ -493,17 +542,43 @@
       })
       .then(data => {
          if (data.status && data.status.toLowerCase() === 'sucesso') {
-          // Substitui o conteúdo atual pela página de agradecimento estilizada
-          document.getElementById('mainContainer').innerHTML = `
-            <div class="thank-you-container">
-              <div class="thank-you-card">
-                 <h1>Obrigado pela sua compra!</h1>
-                <p>Sua transação foi confirmada.</p>
-                <p>ID da Transação: <span class="transaction-id">${transactionId}</span></p>
-                <button class="button" onclick="window.location.href='/'">Voltar à Página Inicial</button>
-              </div>
-            </div>
-          `;
+          // CORRIGIDO: Cria elementos DOM ao invés de innerHTML para prevenir XSS
+          const mainContainer = document.getElementById('mainContainer');
+          mainContainer.innerHTML = ''; // Limpa o conteúdo
+
+          const thankYouContainer = document.createElement('div');
+          thankYouContainer.className = 'thank-you-container';
+
+          const thankYouCard = document.createElement('div');
+          thankYouCard.className = 'thank-you-card';
+
+          const title = document.createElement('h1');
+          title.textContent = 'Obrigado pela sua compra!';
+
+          const confirmText = document.createElement('p');
+          confirmText.textContent = 'Sua transação foi confirmada.';
+
+          const transactionText = document.createElement('p');
+          transactionText.textContent = 'ID da Transação: ';
+
+          const transactionSpan = document.createElement('span');
+          transactionSpan.className = 'transaction-id';
+          transactionSpan.textContent = transactionId;
+          transactionText.appendChild(transactionSpan);
+
+          const backButton = document.createElement('button');
+          backButton.className = 'button';
+          backButton.textContent = 'Voltar à Página Inicial';
+          backButton.addEventListener('click', () => { window.location.href = '/'; });
+
+          thankYouCard.appendChild(title);
+          thankYouCard.appendChild(confirmText);
+          thankYouCard.appendChild(transactionText);
+          thankYouCard.appendChild(backButton);
+
+          thankYouContainer.appendChild(thankYouCard);
+          mainContainer.appendChild(thankYouContainer);
+
           clearInterval(pollingInterval);
         } else {
           document.getElementById('paymentStatus').textContent = 'Aguardando confirmação do pagamento...';
@@ -568,7 +643,23 @@ document.getElementById('generateBtn').addEventListener('click', async function(
     document.getElementById('email').style.display = 'none';
     document.getElementById('generateBtn').style.display = 'none';
     
-    document.getElementById('qrCodeImg').innerHTML = `<img src="data:image/png;base64,${data.qr_code_base64}" alt="QR Code de Pagamento" style="width:200px; height:200px;">`;
+    // CORRIGIDO: Valida e cria imagem com createElement
+    const qrCodeImgContainer = document.getElementById('qrCodeImg');
+    qrCodeImgContainer.innerHTML = ''; // Limpa conteúdo anterior
+
+    // Validação básica do base64
+    if (data.qr_code_base64 && typeof data.qr_code_base64 === 'string') {
+      const qrImg = document.createElement('img');
+      qrImg.alt = 'QR Code de Pagamento';
+      qrImg.style.width = '200px';
+      qrImg.style.height = '200px';
+      qrImg.onerror = function() {
+        showErrorToast('Erro ao carregar QR Code. Tente novamente.');
+      };
+      qrImg.src = 'data:image/png;base64,' + data.qr_code_base64;
+      qrCodeImgContainer.appendChild(qrImg);
+    }
+
     document.getElementById('qrCodeText').textContent = data.qr_code;
     transactionId = data.id;
     qrCodeExpirationTimestamp = data.expirationTimestamp;
@@ -587,11 +678,32 @@ document.getElementById('generateBtn').addEventListener('click', async function(
   }
 });
     
+    // CORRIGIDO: Substituído alert() por toast notification
     document.getElementById('copyBtn').addEventListener('click', function() {
       const qrCodeText = document.getElementById('qrCodeText').textContent;
       navigator.clipboard.writeText(qrCodeText)
-        .then(() => alert('Código copiado para a área de transferência!'))
-        .catch(err => alert('Erro ao copiar: ' + err));
+        .then(() => {
+          // Cria toast de sucesso (verde)
+          const toast = document.createElement('div');
+          toast.className = 'toast';
+          toast.style.background = '#4CAF50'; // Verde para sucesso
+          toast.textContent = 'Código copiado para a área de transferência!';
+          document.body.appendChild(toast);
+          void toast.offsetWidth;
+          toast.classList.add('show');
+          setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+              document.body.removeChild(toast);
+            }, 500);
+          }, 2000);
+        })
+        .catch(err => {
+          if (typeof console !== 'undefined' && console.error) {
+            console.error('Erro ao copiar:', err);
+          }
+          showErrorToast('Erro ao copiar código');
+        });
     });
     
     window.onload = loadProducts;

@@ -1,9 +1,11 @@
 // Scripts para inicializar o Firebase no Service Worker
-importScripts('https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/9.6.1/firebase-messaging-compat.js');
+// ATUALIZADO: Versão do Firebase atualizada de 9.6.1 para 10.7.0
+importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js');
 
-// NOVO: Log para confirmar que o service worker foi carregado pelo navegador
-console.log('[Service Worker] Arquivo carregado e pronto para receber notificações.');
+// NOTA: Service Workers têm limitações para buscar configuração dinamicamente no carregamento.
+// As credenciais do Firebase aqui são públicas e devem ser protegidas via Firebase Security Rules.
+// Em produção, garanta que apenas domínios autorizados possam usar estas credenciais.
 
 const firebaseConfig = {
   apiKey: "AIzaSyAt-gad4dCXjqRrs5aVozVxdYsiv5dDL4c",
