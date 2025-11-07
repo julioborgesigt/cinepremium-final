@@ -53,7 +53,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // NOVO: Configuração do middleware de sessão
 app.use(cookieParser());
 app.use(session({
-  secret: process.env.SESSION_SECRET, // Chave secreta para assinar o cookie da sessão
+  secret: process.env.SESSION_SECRET || 'fallback-secret-change-this', // Chave secreta para assinar o cookie da sessão
   resave: false,
   saveUninitialized: false, // Mudado para false para segurança
   name: 'sessionId', // Nome customizado do cookie
@@ -61,7 +61,7 @@ app.use(session({
     maxAge: 8 * 60 * 60 * 1000, // A sessão expira em 8 horas
     httpOnly: true, // Previne acesso via JavaScript (XSS)
     secure: process.env.NODE_ENV === 'production', // Apenas HTTPS em produção
-    sameSite: 'strict' // Proteção CSRF
+    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax' // Lax em dev para evitar problemas
   }
 }));
 
@@ -154,9 +154,16 @@ async function sendPushNotification(title, body) {
 // MODIFICADO: O middleware agora trata requisições de API (fetch) de forma diferente
 // MODIFICADO: A verificação de API agora é baseada na URL
 function requireLogin(req, res, next) {
+  console.log('[REQUIRE_LOGIN] Path:', req.path);
+  console.log('[REQUIRE_LOGIN] Session ID:', req.sessionID);
+  console.log('[REQUIRE_LOGIN] Session loggedin:', req.session.loggedin);
+  console.log('[REQUIRE_LOGIN] Cookies:', req.cookies);
+
   if (req.session.loggedin) {
+    console.log('[REQUIRE_LOGIN] ✅ Acesso permitido');
     next();
   } else {
+    console.log('[REQUIRE_LOGIN] ❌ Sessão não encontrada ou expirada');
     // Se a URL da requisição começar com /api/, é uma chamada de API.
     if (req.path.startsWith('/api/')) {
       res.status(401).json({ error: 'Sua sessão expirou, faça o login novamente.' });
@@ -184,9 +191,13 @@ const loginLimiter = rateLimit({
 app.post('/auth', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
 
+  console.log('[AUTH] Tentativa de login para usuário:', username);
+  console.log('[AUTH] Session ID antes do login:', req.sessionID);
+
   try {
     // Valida username
     if (username !== process.env.ADMIN_USER) {
+      console.log('[AUTH] Username incorreto');
       return res.redirect('/login?error=1');
     }
 
@@ -197,20 +208,31 @@ app.post('/auth', loginLimiter, async (req, res) => {
     if (passwordHash && (passwordHash.startsWith('$2b$') || passwordHash.startsWith('$2a$'))) {
       // Senha está em formato bcrypt hash
       isPasswordValid = await bcrypt.compare(password, passwordHash);
+      console.log('[AUTH] Verificação bcrypt:', isPasswordValid);
     } else {
       // Backward compatibility: senha em texto plano
       console.warn('⚠️ AVISO: Senha do admin está em texto plano. Use bcrypt para maior segurança.');
       isPasswordValid = (password === passwordHash);
+      console.log('[AUTH] Verificação texto plano:', isPasswordValid);
     }
 
     if (isPasswordValid) {
       req.session.loggedin = true;
-      res.redirect('/admin');
+      req.session.save((err) => {
+        if (err) {
+          console.error('[AUTH] Erro ao salvar sessão:', err);
+          return res.redirect('/login?error=1');
+        }
+        console.log('[AUTH] Login bem-sucedido. Session ID:', req.sessionID);
+        console.log('[AUTH] Session loggedin:', req.session.loggedin);
+        res.redirect('/admin');
+      });
     } else {
+      console.log('[AUTH] Senha incorreta');
       res.redirect('/login?error=1');
     }
   } catch (error) {
-    console.error('Erro na autenticação:', error);
+    console.error('[AUTH] Erro na autenticação:', error);
     res.redirect('/login?error=1');
   }
 });
