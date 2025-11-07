@@ -16,6 +16,7 @@
     "axios": "^1.8.3",
     "bcrypt": "^6.0.0",
     "body-parser": "^1.20.3",
+    "connect-redis": "^9.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
@@ -25,6 +26,7 @@
     "firebase-admin": "^13.6.0",
     "helmet": "^8.1.0",
     "mysql2": "^3.13.0",
+    "redis": "^5.9.0",
     "sequelize": "^6.37.6"
   }
 }
