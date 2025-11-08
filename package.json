@@ -9,6 +9,7 @@
     "migrate": "node migrate-database.js",
     "check-env": "node check-env.js",
     "test-redis": "node test-redis-connection.js",
+    "test-redis-domcloud": "bash test-redis-domcloud.sh",
     "hash-password": "node -e \"const bcrypt = require('bcrypt'); const password = process.argv[1]; bcrypt.hash(password, 10).then(hash => console.log('Hash gerado:', hash));\""
   },
   "keywords": [],
