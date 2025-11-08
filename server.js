@@ -13,8 +13,15 @@ const { Product, PurchaseHistory, AdminDevice, sequelize } = require('./models')
 const session = require('express-session');
 const cookieParser = require('cookie-parser');
 // CORREÇÃO: Redis para store de sessões persistente
-const RedisStore = require('connect-redis').default;
 const { createClient } = require('redis');
+// Para connect-redis@9, a forma correta de import em CommonJS:
+const connectRedisModule = require('connect-redis');
+console.log('[DEBUG] connect-redis module:', Object.keys(connectRedisModule));
+console.log('[DEBUG] connect-redis.default type:', typeof connectRedisModule.default);
+console.log('[DEBUG] connect-redis type:', typeof connectRedisModule);
+const RedisStore = connectRedisModule.default || connectRedisModule;
+console.log('[DEBUG] RedisStore type:', typeof RedisStore);
+console.log('[DEBUG] RedisStore is constructor:', typeof RedisStore === 'function');
 
 // NOVO: Dependências de segurança
 const helmet = require('helmet');
