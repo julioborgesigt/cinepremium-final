@@ -52,13 +52,16 @@ function logInfo(message) {
 
 async function checkIndexExists(tableName, indexName) {
   try {
+    // CORREÇÃO: Usar replacements ao invés de interpolação direta
     const [results] = await sequelize.query(`
       SELECT COUNT(*) as count
       FROM information_schema.statistics
       WHERE table_schema = DATABASE()
-        AND table_name = '${tableName}'
-        AND index_name = '${indexName}'
-    `);
+        AND table_name = :tableName
+        AND index_name = :indexName
+    `, {
+      replacements: { tableName, indexName }
+    });
     return results[0].count > 0;
   } catch (error) {
     logWarning(`Erro ao verificar índice ${indexName}: ${error.message}`);
@@ -93,13 +96,16 @@ async function createIndex(tableName, indexName, fields, unique = false) {
 
 async function checkColumnType(tableName, columnName) {
   try {
+    // CORREÇÃO: Usar replacements ao invés de interpolação direta
     const [results] = await sequelize.query(`
       SELECT COLUMN_TYPE
       FROM information_schema.COLUMNS
       WHERE table_schema = DATABASE()
-        AND table_name = '${tableName}'
-        AND column_name = '${columnName}'
-    `);
+        AND table_name = :tableName
+        AND column_name = :columnName
+    `, {
+      replacements: { tableName, columnName }
+    });
     return results[0]?.COLUMN_TYPE || null;
   } catch (error) {
     logWarning(`Erro ao verificar coluna ${columnName}: ${error.message}`);
