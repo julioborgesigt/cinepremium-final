@@ -39,7 +39,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
 // NOVO: Configuração do CORS
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production'
-    ? process.env.ALLOWED_ORIGINS?.split(',') // Em produção, apenas origens específicas
+    ? process.env.ALLOWED_ORIGINS?.split(',').map(origin => origin.trim()) // CORREÇÃO: Trim nos domínios
     : true, // Em desenvolvimento, permite todas as origens
   credentials: true, // Permite cookies
   optionsSuccessStatus: 200
@@ -102,20 +102,23 @@ if (process.env.NODE_ENV === 'production' || process.env.USE_REDIS === 'true') {
       console.log('✅ Redis pronto para uso');
     });
 
-    // Conecta ao Redis de forma assíncrona
-    redisClient.connect().catch(err => {
-      console.error('❌ Falha ao conectar ao Redis:', err);
-      console.warn('⚠️ Usando MemoryStore como fallback (NÃO RECOMENDADO EM PRODUÇÃO)');
-      redisClient = null;
-    });
-
-    if (redisClient) {
-      sessionStore = new RedisStore({
-        client: redisClient,
-        prefix: 'cinepremium:sess:',
-        ttl: 8 * 60 * 60 // 8 horas em segundos
+    // CORREÇÃO: Conecta ao Redis e aguarda antes de criar o store
+    redisClient.connect()
+      .then(() => {
+        // Cria sessionStore DEPOIS que Redis conectar
+        sessionStore = new RedisStore({
+          client: redisClient,
+          prefix: 'cinepremium:sess:',
+          ttl: 8 * 60 * 60 // 8 horas em segundos
+        });
+        console.log('✅ RedisStore configurado');
+      })
+      .catch(err => {
+        console.error('❌ Falha ao conectar ao Redis:', err);
+        console.warn('⚠️ Usando MemoryStore como fallback (NÃO RECOMENDADO EM PRODUÇÃO)');
+        redisClient = null;
+        sessionStore = null;
       });
-    }
   } catch (error) {
     console.error('❌ Erro ao configurar Redis:', error);
     console.warn('⚠️ Usando MemoryStore como fallback (NÃO RECOMENDADO EM PRODUÇÃO)');
@@ -223,7 +226,11 @@ async function sendPushNotification(title, body) {
       return;
     }
 
-    console.log(`[PUSH LOG] Encontrado(s) ${tokens.length} dispositivo(s). Tokens:`, tokens);
+    // CORREÇÃO: Não loga tokens em produção (dados sensíveis)
+    console.log(`[PUSH LOG] Encontrado(s) ${tokens.length} dispositivo(s)`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[PUSH LOG] Tokens:', tokens);
+    }
 
     const message = {
       notification: {
@@ -459,7 +466,8 @@ const ONDAPAY_API_URL = "https://api.ondapay.app";
 // MODIFICADO: Credenciais agora vêm de variáveis de ambiente
 const ONDAPAY_CLIENT_ID = process.env.ONDAPAY_CLIENT_ID;
 const ONDAPAY_CLIENT_SECRET = process.env.ONDAPAY_CLIENT_SECRET;
-const WEBHOOK_URL = "https://cinepremiumedit.domcloud.dev/ondapay-webhook";
+// CORREÇÃO: WEBHOOK_URL deve vir do .env ao invés de hardcoded
+const WEBHOOK_URL = process.env.WEBHOOK_URL || "https://cinepremiumedit.domcloud.dev/ondapay-webhook";
 
 let ondaPayToken = null;
 let tokenPromise = null; // CORREÇÃO: Promise cache para evitar race conditions

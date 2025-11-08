@@ -461,7 +461,8 @@
               .catch(error => {
                   if (error.message !== 'Sessão expirada') {
                       console.error('Erro ao reordenar:', error);
-                      alert('Ocorreu um erro ao tentar salvar a nova ordem.');
+                      // CORREÇÃO: Usar showToast ao invés de alert
+                      showToast('Ocorreu um erro ao tentar salvar a nova ordem.', 'error');
                   }
               });
           }
