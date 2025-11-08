@@ -72,7 +72,12 @@ let sessionStore;
 
 // CORREÇÃO: Função async para inicializar Redis ANTES de configurar middlewares
 async function initializeRedis() {
+  console.log('[DEBUG] Verificando condições para usar Redis:');
+  console.log(`  NODE_ENV: ${process.env.NODE_ENV || 'não definido'}`);
+  console.log(`  USE_REDIS: ${process.env.USE_REDIS || 'não definido'}`);
+
   const shouldUseRedis = process.env.NODE_ENV === 'production' || process.env.USE_REDIS === 'true';
+  console.log(`  Resultado: ${shouldUseRedis ? 'USAR REDIS' : 'USAR MEMORYSTORE'}`);
 
   if (!shouldUseRedis) {
     console.warn('⚠️ Usando MemoryStore para sessões (apenas desenvolvimento)');
@@ -144,6 +149,7 @@ app.use((req, res, next) => {
     return actualSessionMiddleware(req, res, next);
   }
   // Se ainda não tiver middleware (durante inicialização), pula
+  console.warn(`[AVISO] Requisição ${req.path} antes de session middleware estar pronto!`);
   next();
 });
 
@@ -1020,6 +1026,10 @@ async function startServer() {
 
     // CORREÇÃO CRÍTICA: Cria middleware de sessão DEPOIS do Redis estar pronto
     // Atribui ao wrapper que já foi registrado na ordem correta
+    console.log('[DEBUG] Criando middleware de sessão...');
+    console.log(`  sessionStore definido: ${!!sessionStore}`);
+    console.log(`  sessionStore é RedisStore: ${sessionStore && sessionStore.constructor.name === 'RedisStore'}`);
+
     actualSessionMiddleware = session({
       store: sessionStore, // Agora sessionStore está definido (RedisStore ou undefined para MemoryStore)
       secret: process.env.SESSION_SECRET || 'fallback-secret-change-this',
@@ -1036,6 +1046,7 @@ async function startServer() {
         domain: process.env.COOKIE_DOMAIN || undefined
       }
     });
+    console.log('[DEBUG] actualSessionMiddleware atribuído:', !!actualSessionMiddleware);
     console.log(`✅ Middleware de sessão configurado (${sessionStore ? 'RedisStore' : 'MemoryStore'})`);
 
     // Obtém token OndaPay antes de aceitar requisições
