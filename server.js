@@ -70,10 +70,19 @@ app.use(express.static(path.join(__dirname, 'public')));
 let redisClient;
 let sessionStore;
 
-if (process.env.NODE_ENV === 'production' || process.env.USE_REDIS === 'true') {
+// CORREÇÃO: Função async para inicializar Redis ANTES de configurar middlewares
+async function initializeRedis() {
+  const shouldUseRedis = process.env.NODE_ENV === 'production' || process.env.USE_REDIS === 'true';
+
+  if (!shouldUseRedis) {
+    console.warn('⚠️ Usando MemoryStore para sessões (apenas desenvolvimento)');
+    console.warn('💡 Para produção, configure NODE_ENV=production ou USE_REDIS=true');
+    return; // sessionStore fica undefined, Express usa MemoryStore
+  }
+
   try {
     const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-    console.log(`📦 Conectando ao Redis: ${redisUrl}`);
+    console.log(`📦 Conectando ao Redis: ${redisUrl.replace(/:[^:@]+@/, ':****@')}`);
 
     redisClient = createClient({
       url: redisUrl,
@@ -102,50 +111,27 @@ if (process.env.NODE_ENV === 'production' || process.env.USE_REDIS === 'true') {
       console.log('✅ Redis pronto para uso');
     });
 
-    // CORREÇÃO: Conecta ao Redis e aguarda antes de criar o store
-    redisClient.connect()
-      .then(() => {
-        // Cria sessionStore DEPOIS que Redis conectar
-        sessionStore = new RedisStore({
-          client: redisClient,
-          prefix: 'cinepremium:sess:',
-          ttl: 8 * 60 * 60 // 8 horas em segundos
-        });
-        console.log('✅ RedisStore configurado');
-      })
-      .catch(err => {
-        console.error('❌ Falha ao conectar ao Redis:', err);
-        console.warn('⚠️ Usando MemoryStore como fallback (NÃO RECOMENDADO EM PRODUÇÃO)');
-        redisClient = null;
-        sessionStore = null;
-      });
+    // CORREÇÃO CRÍTICA: AGUARDA a conexão antes de continuar
+    await redisClient.connect();
+
+    // Cria sessionStore DEPOIS que Redis está conectado
+    sessionStore = new RedisStore({
+      client: redisClient,
+      prefix: 'cinepremium:sess:',
+      ttl: 8 * 60 * 60 // 8 horas em segundos
+    });
+    console.log('✅ RedisStore configurado e pronto');
+
   } catch (error) {
-    console.error('❌ Erro ao configurar Redis:', error);
+    console.error('❌ Falha ao conectar ao Redis:', error);
     console.warn('⚠️ Usando MemoryStore como fallback (NÃO RECOMENDADO EM PRODUÇÃO)');
+    redisClient = null;
+    sessionStore = null;
   }
-} else {
-  console.warn('⚠️ Usando MemoryStore para sessões (apenas desenvolvimento)');
-  console.warn('💡 Para produção, configure REDIS_URL no .env');
 }
 
-// NOVO: Configuração do middleware de sessão
+// NOTA: Middlewares de sessão serão configurados em startServer() APÓS Redis inicializar
 app.use(cookieParser());
-app.use(session({
-  store: sessionStore, // CORREÇÃO: Usa RedisStore se disponível, senão MemoryStore
-  secret: process.env.SESSION_SECRET || 'fallback-secret-change-this',
-  resave: false,
-  saveUninitialized: false,
-  name: 'sessionId',
-  proxy: true,
-  cookie: {
-    maxAge: 8 * 60 * 60 * 1000, // 8 horas
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    domain: process.env.COOKIE_DOMAIN || undefined
-  }
-}));
 
 // NOVO: Middleware de debug para sessão (apenas em produção)
 if (process.env.NODE_ENV === 'production' || process.env.DEBUG_SESSION === 'true') {
@@ -1009,10 +995,33 @@ app.post('/api/devices', requireLogin, async (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 // CORREÇÃO: Função de inicialização assíncrona
-// Obtém token OndaPay ANTES de iniciar o servidor
+// Inicializa Redis e OndaPay ANTES de iniciar o servidor
 async function startServer() {
   try {
     console.log('🚀 Inicializando servidor...');
+
+    // CORREÇÃO CRÍTICA: Inicializa Redis PRIMEIRO
+    console.log('📦 Inicializando Redis...');
+    await initializeRedis();
+
+    // CORREÇÃO CRÍTICA: Configura middleware de sessão DEPOIS do Redis estar pronto
+    app.use(session({
+      store: sessionStore, // Agora sessionStore está definido (RedisStore ou undefined para MemoryStore)
+      secret: process.env.SESSION_SECRET || 'fallback-secret-change-this',
+      resave: false,
+      saveUninitialized: false,
+      name: 'sessionId',
+      proxy: true,
+      cookie: {
+        maxAge: 8 * 60 * 60 * 1000, // 8 horas
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        domain: process.env.COOKIE_DOMAIN || undefined
+      }
+    }));
+    console.log(`✅ Middleware de sessão configurado (${sessionStore ? 'RedisStore' : 'MemoryStore'})`);
 
     // Obtém token OndaPay antes de aceitar requisições
     console.log('📡 Obtendo token OndaPay...');
@@ -1023,6 +1032,7 @@ async function startServer() {
     app.listen(PORT, () => {
       console.log(`✅ Servidor rodando na porta ${PORT}`);
       console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🗄️  Sessões: ${sessionStore ? 'Redis (persistente)' : 'Memória (volátil)'}`);
       console.log('✨ Sistema pronto para receber requisições');
     });
   } catch (error) {
