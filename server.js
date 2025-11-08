@@ -565,6 +565,59 @@ app.get('/api/firebase-config', (req, res) => {
   }
 });
 
+// NOVO: Endpoint de diagnóstico para verificar configurações (apenas quando logado)
+app.get('/api/diagnostics', requireLogin, async (req, res) => {
+  try {
+    const diagnostics = {
+      environment: {
+        NODE_ENV: process.env.NODE_ENV || 'não definido',
+        USE_REDIS: process.env.USE_REDIS || 'não definido',
+        PORT: process.env.PORT || 'não definido'
+      },
+      redis: {
+        url_configured: !!process.env.REDIS_URL,
+        url_preview: process.env.REDIS_URL ? process.env.REDIS_URL.replace(/:[^:@]+@/, ':****@') : 'não definido',
+        client_connected: !!redisClient,
+        store_configured: !!sessionStore,
+        should_use_redis: process.env.NODE_ENV === 'production' || process.env.USE_REDIS === 'true'
+      },
+      session: {
+        secret_configured: !!process.env.SESSION_SECRET,
+        store_type: sessionStore ? 'RedisStore' : 'MemoryStore',
+        cookie_domain: process.env.COOKIE_DOMAIN || 'não definido'
+      },
+      database: {
+        host: process.env.DB_HOST || 'não definido',
+        name: process.env.DB_NAME || 'não definido',
+        user_configured: !!process.env.DB_USER
+      },
+      ondapay: {
+        client_id_configured: !!process.env.ONDAPAY_CLIENT_ID,
+        webhook_url: process.env.WEBHOOK_URL || 'não definido'
+      },
+      firebase: {
+        initialized: isFirebaseInitialized,
+        project_id: process.env.FIREBASE_PROJECT_ID || 'não definido'
+      }
+    };
+
+    // Se Redis estiver configurado, tenta contar sessões
+    if (redisClient) {
+      try {
+        const keys = await redisClient.keys('cinepremium:sess:*');
+        diagnostics.redis.active_sessions = keys.length;
+      } catch (err) {
+        diagnostics.redis.active_sessions_error = err.message;
+      }
+    }
+
+    res.json(diagnostics);
+  } catch (error) {
+    console.error('Erro ao gerar diagnóstico:', error);
+    res.status(500).json({ error: 'Erro ao gerar diagnóstico' });
+  }
+});
+
 // Endpoint para gerar QR Code de pagamento
 // MODIFICADO: A rota de gerar QR Code agora tem a lógica de renovação de token
 app.post('/gerarqrcode', async (req, res) => {
