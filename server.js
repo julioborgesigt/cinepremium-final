@@ -14,14 +14,8 @@ const session = require('express-session');
 const cookieParser = require('cookie-parser');
 // CORREÇÃO: Redis para store de sessões persistente
 const { createClient } = require('redis');
-// Para connect-redis@9, a forma correta de import em CommonJS:
-const connectRedisModule = require('connect-redis');
-console.log('[DEBUG] connect-redis module:', Object.keys(connectRedisModule));
-console.log('[DEBUG] connect-redis.default type:', typeof connectRedisModule.default);
-console.log('[DEBUG] connect-redis type:', typeof connectRedisModule);
-const RedisStore = connectRedisModule.default || connectRedisModule;
-console.log('[DEBUG] RedisStore type:', typeof RedisStore);
-console.log('[DEBUG] RedisStore is constructor:', typeof RedisStore === 'function');
+// CORREÇÃO: Import correto do RedisStore (named export, não default)
+const { RedisStore } = require('connect-redis');
 
 // NOVO: Dependências de segurança
 const helmet = require('helmet');
@@ -129,69 +123,13 @@ async function initializeRedis() {
     await redisClient.connect();
     console.log('[DEBUG] redisClient.connect() completou com sucesso');
 
-    // CORREÇÃO: Instancia RedisStore de forma compatível com v9
-    // Em connect-redis v9, RedisStore é uma classe direta
-    console.log('[DEBUG] Criando RedisStore...');
-    console.log('[DEBUG] RedisStore type:', typeof RedisStore);
-
-    // Tenta criar o store de diferentes formas para compatibilidade
-    try {
-      // Forma 1: Instanciação direta (v7+)
-      sessionStore = new RedisStore({
-        client: redisClient,
-        prefix: 'cinepremium:sess:',
-        ttl: 8 * 60 * 60 // 8 horas em segundos
-      });
-    } catch (err1) {
-      console.log('[DEBUG] Tentativa 1 falhou:', err1.message);
-      try {
-        // Forma 2: RedisStore como função (v6)
-        const StoreClass = RedisStore(session);
-        sessionStore = new StoreClass({
-          client: redisClient,
-          prefix: 'cinepremium:sess:',
-          ttl: 8 * 60 * 60
-        });
-      } catch (err2) {
-        console.log('[DEBUG] Tentativa 2 falhou:', err2.message);
-        // Forma 3: Usando o client diretamente sem wrapper
-        sessionStore = {
-          client: redisClient,
-          prefix: 'cinepremium:sess:',
-          ttl: 8 * 60 * 60,
-          get: async (sid, callback) => {
-            try {
-              const data = await redisClient.get(`cinepremium:sess:${sid}`);
-              callback(null, data ? JSON.parse(data) : null);
-            } catch (err) {
-              callback(err);
-            }
-          },
-          set: async (sid, session, callback) => {
-            try {
-              await redisClient.set(
-                `cinepremium:sess:${sid}`,
-                JSON.stringify(session),
-                { EX: 8 * 60 * 60 }
-              );
-              callback(null);
-            } catch (err) {
-              callback(err);
-            }
-          },
-          destroy: async (sid, callback) => {
-            try {
-              await redisClient.del(`cinepremium:sess:${sid}`);
-              callback(null);
-            } catch (err) {
-              callback(err);
-            }
-          }
-        };
-        console.log('[DEBUG] Usando implementação manual de RedisStore');
-      }
-    }
-
+    // CORREÇÃO: Cria RedisStore com o import correto
+    // RedisStore agora é uma named export de connect-redis
+    sessionStore = new RedisStore({
+      client: redisClient,
+      prefix: 'cinepremium:sess:',
+      ttl: 8 * 60 * 60 // 8 horas em segundos
+    });
     console.log('✅ RedisStore configurado e pronto');
 
   } catch (error) {
