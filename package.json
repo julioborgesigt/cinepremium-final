@@ -12,6 +12,7 @@
     "test-redis-domcloud": "bash test-redis-domcloud.sh",
     "test-session-persistence": "bash test-session-persistence.sh",
     "verify-security": "bash verify-env-security.sh",
+    "diagnose-redis": "node diagnose-redis.js",
     "hash-password": "node -e \"const bcrypt = require('bcrypt'); const password = process.argv[1]; bcrypt.hash(password, 10).then(hash => console.log('Hash gerado:', hash));\""
   },
   "keywords": [],
