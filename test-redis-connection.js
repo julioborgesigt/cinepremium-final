@@ -1,14 +1,25 @@
 // Script para testar conexão e visualizar sessões no Redis
-require('dotenv').config();
+// Tenta carregar .env se existir (desenvolvimento local)
+try {
+  require('dotenv').config();
+} catch (e) {
+  // Ignora se dotenv não estiver disponível ou .env não existir
+}
+
 const { createClient } = require('redis');
 
 async function testRedis() {
   console.log('🔍 Testando conexão com Redis...\n');
 
-  const redisUrl = process.env.REDIS_URL;
+  // Aceita REDIS_URL do ambiente OU do argumento da linha de comando
+  const redisUrl = process.env.REDIS_URL || process.argv[2];
 
   if (!redisUrl) {
-    console.error('❌ REDIS_URL não está definido no .env');
+    console.error('❌ REDIS_URL não está definido!');
+    console.error('\n💡 Soluções:');
+    console.error('   1. Defina a variável de ambiente: export REDIS_URL="redis://..."');
+    console.error('   2. Passe como argumento: npm run test-redis redis://...');
+    console.error('   3. Configure no .env (desenvolvimento): REDIS_URL=redis://...\n');
     process.exit(1);
   }
 
