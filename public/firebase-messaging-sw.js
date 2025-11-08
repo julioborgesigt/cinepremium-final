@@ -8,7 +8,7 @@ importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-comp
 // Em produção, garanta que apenas domínios autorizados possam usar estas credenciais.
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAt-gad4dCXjqRrs5aVozVxdYsiv5dDL4c",
+  apiKey: process.env.FIREBASE_API_KEY,
   authDomain: "cinep-fb345.firebaseapp.com",
   projectId: "cinep-fb345",
   storageBucket: "cinep-fb345.firebasestorage.app",
@@ -32,4 +32,5 @@ messaging.onBackgroundMessage((payload) => {
 
   // self.registration.showNotification é o comando que cria a notificação visual
   return self.registration.showNotification(notificationTitle, notificationOptions);
+
 });
