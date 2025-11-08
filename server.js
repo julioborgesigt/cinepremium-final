@@ -72,7 +72,12 @@ let sessionStore;
 
 // CORREÇÃO: Função async para inicializar Redis ANTES de configurar middlewares
 async function initializeRedis() {
+  console.log('[DEBUG] Verificando condições para usar Redis:');
+  console.log(`  NODE_ENV: ${process.env.NODE_ENV || 'não definido'}`);
+  console.log(`  USE_REDIS: ${process.env.USE_REDIS || 'não definido'}`);
+
   const shouldUseRedis = process.env.NODE_ENV === 'production' || process.env.USE_REDIS === 'true';
+  console.log(`  Resultado: ${shouldUseRedis ? 'USAR REDIS' : 'USAR MEMORYSTORE'}`);
 
   if (!shouldUseRedis) {
     console.warn('⚠️ Usando MemoryStore para sessões (apenas desenvolvimento)');
@@ -87,6 +92,7 @@ async function initializeRedis() {
     redisClient = createClient({
       url: redisUrl,
       socket: {
+        connectTimeout: 10000, // 10 segundos (aumentado de 5s padrão)
         reconnectStrategy: (retries) => {
           if (retries > 10) {
             console.error('❌ Redis: Máximo de tentativas de reconexão atingido');
@@ -100,7 +106,7 @@ async function initializeRedis() {
     });
 
     redisClient.on('error', (err) => {
-      console.error('❌ Erro no Redis:', err);
+      console.error('❌ Erro no Redis:', err.message || err);
     });
 
     redisClient.on('connect', () => {
@@ -112,7 +118,9 @@ async function initializeRedis() {
     });
 
     // CORREÇÃO CRÍTICA: AGUARDA a conexão antes de continuar
+    console.log('[DEBUG] Chamando redisClient.connect()...');
     await redisClient.connect();
+    console.log('[DEBUG] redisClient.connect() completou com sucesso');
 
     // Cria sessionStore DEPOIS que Redis está conectado
     sessionStore = new RedisStore({
@@ -123,7 +131,13 @@ async function initializeRedis() {
     console.log('✅ RedisStore configurado e pronto');
 
   } catch (error) {
-    console.error('❌ Falha ao conectar ao Redis:', error);
+    console.error('❌ FALHA AO CONECTAR AO REDIS:');
+    console.error('   Tipo do erro:', error.constructor.name);
+    console.error('   Mensagem:', error.message);
+    console.error('   Code:', error.code);
+    if (error.stack) {
+      console.error('   Stack trace:', error.stack.split('\n').slice(0, 3).join('\n'));
+    }
     console.warn('⚠️ Usando MemoryStore como fallback (NÃO RECOMENDADO EM PRODUÇÃO)');
     redisClient = null;
     sessionStore = null;
@@ -144,6 +158,7 @@ app.use((req, res, next) => {
     return actualSessionMiddleware(req, res, next);
   }
   // Se ainda não tiver middleware (durante inicialização), pula
+  console.warn(`[AVISO] Requisição ${req.path} antes de session middleware estar pronto!`);
   next();
 });
 
@@ -1020,6 +1035,10 @@ async function startServer() {
 
     // CORREÇÃO CRÍTICA: Cria middleware de sessão DEPOIS do Redis estar pronto
     // Atribui ao wrapper que já foi registrado na ordem correta
+    console.log('[DEBUG] Criando middleware de sessão...');
+    console.log(`  sessionStore definido: ${!!sessionStore}`);
+    console.log(`  sessionStore é RedisStore: ${sessionStore && sessionStore.constructor.name === 'RedisStore'}`);
+
     actualSessionMiddleware = session({
       store: sessionStore, // Agora sessionStore está definido (RedisStore ou undefined para MemoryStore)
       secret: process.env.SESSION_SECRET || 'fallback-secret-change-this',
@@ -1036,6 +1055,7 @@ async function startServer() {
         domain: process.env.COOKIE_DOMAIN || undefined
       }
     });
+    console.log('[DEBUG] actualSessionMiddleware atribuído:', !!actualSessionMiddleware);
     console.log(`✅ Middleware de sessão configurado (${sessionStore ? 'RedisStore' : 'MemoryStore'})`);
 
     // Obtém token OndaPay antes de aceitar requisições
