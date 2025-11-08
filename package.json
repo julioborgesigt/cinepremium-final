@@ -10,6 +10,7 @@
     "check-env": "node check-env.js",
     "test-redis": "node test-redis-connection.js",
     "test-redis-domcloud": "bash test-redis-domcloud.sh",
+    "test-redis-detailed": "node test-redis-detailed.js",
     "test-session-persistence": "bash test-session-persistence.sh",
     "verify-security": "bash verify-env-security.sh",
     "diagnose-redis": "node diagnose-redis.js",
