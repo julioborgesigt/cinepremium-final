@@ -92,6 +92,7 @@ async function initializeRedis() {
     redisClient = createClient({
       url: redisUrl,
       socket: {
+        connectTimeout: 10000, // 10 segundos (aumentado de 5s padrão)
         reconnectStrategy: (retries) => {
           if (retries > 10) {
             console.error('❌ Redis: Máximo de tentativas de reconexão atingido');
@@ -105,7 +106,7 @@ async function initializeRedis() {
     });
 
     redisClient.on('error', (err) => {
-      console.error('❌ Erro no Redis:', err);
+      console.error('❌ Erro no Redis:', err.message || err);
     });
 
     redisClient.on('connect', () => {
@@ -117,7 +118,9 @@ async function initializeRedis() {
     });
 
     // CORREÇÃO CRÍTICA: AGUARDA a conexão antes de continuar
+    console.log('[DEBUG] Chamando redisClient.connect()...');
     await redisClient.connect();
+    console.log('[DEBUG] redisClient.connect() completou com sucesso');
 
     // Cria sessionStore DEPOIS que Redis está conectado
     sessionStore = new RedisStore({
@@ -128,7 +131,13 @@ async function initializeRedis() {
     console.log('✅ RedisStore configurado e pronto');
 
   } catch (error) {
-    console.error('❌ Falha ao conectar ao Redis:', error);
+    console.error('❌ FALHA AO CONECTAR AO REDIS:');
+    console.error('   Tipo do erro:', error.constructor.name);
+    console.error('   Mensagem:', error.message);
+    console.error('   Code:', error.code);
+    if (error.stack) {
+      console.error('   Stack trace:', error.stack.split('\n').slice(0, 3).join('\n'));
+    }
     console.warn('⚠️ Usando MemoryStore como fallback (NÃO RECOMENDADO EM PRODUÇÃO)');
     redisClient = null;
     sessionStore = null;
