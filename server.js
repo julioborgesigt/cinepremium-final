@@ -446,12 +446,33 @@ async function sendPushNotification(title, body) {
     console.log('[PUSH LOG] Sucesso:', response.successCount);
     console.log('[PUSH LOG] Falha:', response.failureCount);
 
+    // NOVO: Limpa tokens inválidos do banco de dados automaticamente
     if (response.failureCount > 0) {
-      response.responses.forEach(resp => {
+      const tokensToRemove = [];
+
+      response.responses.forEach((resp, index) => {
         if (!resp.success) {
           console.error('[PUSH LOG] Detalhe da falha:', resp.error);
+
+          // Se token não está registrado ou é inválido, marca para remoção
+          if (resp.error?.code === 'messaging/registration-token-not-registered' ||
+              resp.error?.code === 'messaging/invalid-registration-token') {
+            tokensToRemove.push(tokens[index]);
+          }
         }
       });
+
+      // Remove tokens inválidos do banco
+      if (tokensToRemove.length > 0) {
+        try {
+          const deleted = await AdminDevice.destroy({
+            where: { token: tokensToRemove }
+          });
+          console.log(`[PUSH LOG] 🗑️  Removidos ${deleted} token(s) inválido(s) do banco de dados`);
+        } catch (error) {
+          console.error('[PUSH LOG] Erro ao remover tokens inválidos:', error);
+        }
+      }
     }
     console.log('--- [PUSH LOG] --- Fim do processo de envio.');
 
@@ -1126,6 +1147,116 @@ app.post('/check-local-status', statusCheckLimiter, applyCsrf, async (req, res) 
       console.error("[STATUS CHECK] Erro ao verificar status local:", error.message);
       res.status(500).json({ error: "Erro ao verificar status localmente" });
     }
+});
+
+// NOVO: Endpoint de debug para diagnóstico de pagamentos (temporário)
+app.get('/api/debug-payment/:transactionId', requireLogin, async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+
+    const purchase = await PurchaseHistory.findOne({ where: { transactionId } });
+
+    if (!purchase) {
+      return res.json({
+        found: false,
+        message: 'Nenhuma compra encontrada com este transactionId',
+        transactionId
+      });
+    }
+
+    const debug = {
+      found: true,
+      purchase: {
+        id: purchase.id,
+        transactionId: purchase.transactionId,
+        nome: purchase.nome,
+        status: purchase.status,
+        dataTransacao: purchase.dataTransacao,
+        createdAt: purchase.createdAt,
+        updatedAt: purchase.updatedAt
+      },
+      webhookInfo: {
+        webhookUrl: process.env.WEBHOOK_URL || 'NÃO CONFIGURADO',
+        webhookSecretConfigured: !!process.env.ONDAPAY_WEBHOOK_SECRET,
+        isLocalhost: (process.env.WEBHOOK_URL || '').includes('localhost'),
+        warning: (process.env.WEBHOOK_URL || '').includes('localhost')
+          ? '⚠️ WEBHOOK_URL aponta para localhost. OndaPay não consegue enviar webhooks para localhost!'
+          : null
+      },
+      polling: {
+        endpoint: '/check-local-status',
+        frequency: '5 segundos',
+        timeout: '10 minutos'
+      },
+      troubleshooting: {
+        statusIsGerado: purchase.status === 'Gerado',
+        tips: purchase.status === 'Gerado' ? [
+          '1. Verifique se o pagamento foi realmente efetuado no Pix',
+          '2. Se sim, verifique se o webhook está chegando (logs do servidor)',
+          '3. Se servidor está em localhost, webhook NÃO vai funcionar',
+          '4. Para localhost, você pode simular o webhook manualmente'
+        ] : [
+          `Status atual: ${purchase.status}`,
+          'Se status está correto mas página não atualizou, verifique o polling no navegador'
+        ]
+      }
+    };
+
+    res.json(debug);
+  } catch (error) {
+    console.error('[DEBUG] Erro:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// NOVO: Endpoint para simular webhook (APENAS PARA DESENVOLVIMENTO/TESTE)
+app.post('/api/simulate-webhook', requireLogin, async (req, res) => {
+  try {
+    const { transactionId } = req.body;
+
+    if (!transactionId) {
+      return res.status(400).json({ error: 'transactionId é obrigatório' });
+    }
+
+    const purchase = await PurchaseHistory.findOne({
+      where: { transactionId }
+    });
+
+    if (!purchase) {
+      return res.status(404).json({ error: 'Compra não encontrada' });
+    }
+
+    if (purchase.status === 'Sucesso') {
+      return res.json({
+        message: 'Compra já está marcada como Sucesso',
+        alreadyProcessed: true
+      });
+    }
+
+    // Atualiza para Sucesso
+    await purchase.update({ status: 'Sucesso' });
+
+    // Envia notificação
+    sendPushNotification(
+      'Venda Paga com Sucesso!',
+      `O pagamento de ${purchase.nome} foi confirmado (SIMULADO).`
+    );
+
+    res.json({
+      success: true,
+      message: 'Webhook simulado com sucesso',
+      purchase: {
+        id: purchase.id,
+        transactionId: purchase.transactionId,
+        status: purchase.status,
+        nome: purchase.nome
+      }
+    });
+
+  } catch (error) {
+    console.error('[SIMULATE WEBHOOK] Erro:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Endpoint público para buscar a lista de produtos
