@@ -112,8 +112,9 @@
             });
 
             if (response.ok) {
-              // Login bem-sucedido, redireciona para admin
-              window.location.href = '/admin';
+              // Login bem-sucedido, usa redirect do servidor
+              const data = await response.json();
+              window.location.href = data.redirect || '/admin';
             } else {
               // Se for 403, token CSRF inválido - recarrega e tenta novamente
               if (response.status === 403) {
@@ -131,15 +132,20 @@
                 });
 
                 if (retryResponse.ok) {
-                  window.location.href = '/admin';
+                  const retryData = await retryResponse.json();
+                  window.location.href = retryData.redirect || '/admin';
                 } else {
                   // Credenciais inválidas
+                  const errorData = await retryResponse.json().catch(() => ({}));
                   const errorMessageDiv = document.getElementById('errorMessage');
+                  errorMessageDiv.textContent = errorData.error || 'Usuário ou senha incorretos. Tente novamente.';
                   errorMessageDiv.style.display = 'block';
                 }
               } else {
                 // Outro erro (401, etc)
+                const errorData = await response.json().catch(() => ({}));
                 const errorMessageDiv = document.getElementById('errorMessage');
+                errorMessageDiv.textContent = errorData.error || 'Usuário ou senha incorretos. Tente novamente.';
                 errorMessageDiv.style.display = 'block';
               }
             }
