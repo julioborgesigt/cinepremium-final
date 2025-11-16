@@ -548,6 +548,7 @@
     async function checkPaymentStatus() {
        // NOVO: Bloco que verifica se o QR Code expirou
       if (qrCodeExpirationTimestamp && Date.now() > qrCodeExpirationTimestamp) {
+        console.log('[POLLING] ⏱️ QR Code expirou');
         document.getElementById('paymentStatus').textContent = 'Seu QR Code expirou. Por favor, volte e gere um novo.';
         clearInterval(pollingInterval); // Para a verificação
         return; // Sai da função
@@ -555,6 +556,8 @@
       if (!transactionId) return;
 
       try {
+        console.log('[POLLING] 🔄 Verificando status do pagamento...', transactionId);
+
         // Obtém CSRF token
         const token = await getCsrfToken();
 
@@ -569,6 +572,7 @@
 
         // Se CSRF inválido, recarrega token e tenta novamente
         if (response.status === 403) {
+          console.warn('[POLLING] ⚠️ CSRF inválido, renovando token...');
           csrfToken = null;
           const newToken = await getCsrfToken();
           const retryResponse = await fetch('/check-local-status', {
@@ -584,21 +588,34 @@
             throw new Error('Erro ao verificar status');
           }
           const data = await retryResponse.json();
+          console.log('[POLLING] 📊 Status recebido (após retry):', data.status);
           processPaymentStatus(data);
         } else if (!response.ok) {
+          console.error('[POLLING] ❌ Erro na resposta:', response.status);
           throw new Error('Erro ao verificar status');
         } else {
           const data = await response.json();
+          console.log('[POLLING] 📊 Status recebido:', data.status);
           processPaymentStatus(data);
         }
       } catch (error) {
-        console.error('Erro ao verificar status:', error);
+        console.error('[POLLING] ❌ Erro ao verificar status:', error);
       }
     }
 
     // NOVO: Função auxiliar para processar status do pagamento
     function processPaymentStatus(data) {
+      console.log('[PAYMENT] 📊 Processando status:', data);
+
       if (data.status && data.status.toLowerCase() === 'sucesso') {
+        console.log('[PAYMENT] ✅ PAGAMENTO CONFIRMADO! Exibindo página de agradecimento...');
+
+        // Para o polling
+        if (pollingInterval) {
+          clearInterval(pollingInterval);
+          console.log('[PAYMENT] 🛑 Polling interrompido');
+        }
+
         // CORRIGIDO: Cria elementos DOM ao invés de innerHTML para prevenir XSS
         const mainContainer = document.getElementById('mainContainer');
         mainContainer.innerHTML = ''; // Limpa o conteúdo
@@ -770,9 +787,16 @@ document.getElementById('generateBtn').addEventListener('click', async function(
       qrCodeExpirationTimestamp = data.expirationTimestamp;
       document.getElementById('transactionId').textContent = 'ID da Transação: ' + transactionId;
 
+      console.log('✅ [QR CODE] QR Code gerado com sucesso!');
+      console.log('  - Transaction ID:', transactionId);
+      console.log('  - Expira em:', new Date(qrCodeExpirationTimestamp).toLocaleString());
+
       // Limpa polling anterior se existir
       if (pollingInterval) clearInterval(pollingInterval);
       if (pollingTimeout) clearTimeout(pollingTimeout);
+
+      console.log('[POLLING] 🚀 Iniciando polling a cada 5 segundos...');
+      console.log('[POLLING] ⏱️ Polling será interrompido após 10 minutos');
 
       // Inicia novo polling
       pollingInterval = setInterval(checkPaymentStatus, 5000);
@@ -780,10 +804,17 @@ document.getElementById('generateBtn').addEventListener('click', async function(
       // NOVO: Para o polling automaticamente após 10 minutos (DoS prevention)
       pollingTimeout = setTimeout(() => {
         clearInterval(pollingInterval);
+        console.log('[POLLING] ⏱️ Timeout de 10 minutos atingido. Polling interrompido.');
         document.getElementById('paymentStatus').textContent =
           'Tempo limite de verificação excedido. Recarregue a página e gere um novo QR Code se necessário.';
         document.getElementById('paymentStatus').style.color = '#ff9800'; // Laranja
       }, 10 * 60 * 1000); // 10 minutos
+
+      console.log('\n📱 Aguardando pagamento via Pix...');
+      console.log('💡 Dicas de debug:');
+      console.log('  - Acompanhe os logs [POLLING] para ver as verificações de status');
+      console.log('  - Quando o pagamento for confirmado, você verá [PAYMENT] ✅ PAGAMENTO CONFIRMADO');
+      console.log('  - Para simular um pagamento, use a página de admin');
     }
     
     // CORRIGIDO: Substituído alert() por toast notification
