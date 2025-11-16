@@ -33,39 +33,133 @@ const app = express();
 // VALIDAÇÕES CRÍTICAS DE SEGURANÇA
 // ============================================
 
-// CORREÇÃO CRÍTICA #4: Validar SESSION_SECRET obrigatório
-if (!process.env.SESSION_SECRET) {
-  console.error('❌ ERRO CRÍTICO: SESSION_SECRET não configurado no .env');
-  console.error('Gere um secret forte com:');
-  console.error('node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
-  process.exit(1);
+// NOVO: Validação centralizada de variáveis de ambiente obrigatórias
+function validateEnvironmentVariables() {
+  const errors = [];
+  const warnings = [];
+
+  // 1. ADMIN_USER - Usuário administrador
+  if (!process.env.ADMIN_USER) {
+    errors.push({
+      var: 'ADMIN_USER',
+      message: 'Usuário administrador não configurado',
+      solution: 'Defina ADMIN_USER no arquivo .env (exemplo: ADMIN_USER=admin)'
+    });
+  }
+
+  // 2. ADMIN_PASS - Senha em formato bcrypt
+  const passwordHash = process.env.ADMIN_PASS;
+  if (!passwordHash) {
+    errors.push({
+      var: 'ADMIN_PASS',
+      message: 'Senha do administrador não configurada',
+      solution: 'Execute: npm run hash-password sua_senha_aqui'
+    });
+  } else if (!passwordHash.startsWith('$2b$') && !passwordHash.startsWith('$2a$')) {
+    errors.push({
+      var: 'ADMIN_PASS',
+      message: 'Senha deve estar em formato bcrypt (não texto plano)',
+      solution: 'Execute: npm run hash-password sua_senha_aqui'
+    });
+  }
+
+  // 3. SESSION_SECRET - Secret para sessões
+  if (!process.env.SESSION_SECRET) {
+    errors.push({
+      var: 'SESSION_SECRET',
+      message: 'Secret de sessão não configurado',
+      solution: 'Gere com: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
+    });
+  } else if (process.env.SESSION_SECRET.length < 32) {
+    warnings.push({
+      var: 'SESSION_SECRET',
+      message: 'Secret de sessão muito curto (recomendado: 64+ caracteres)',
+      solution: 'Gere um secret mais forte para produção'
+    });
+  }
+
+  // 4. ONDAPAY_CLIENT_ID e ONDAPAY_CLIENT_SECRET
+  if (!process.env.ONDAPAY_CLIENT_ID) {
+    errors.push({
+      var: 'ONDAPAY_CLIENT_ID',
+      message: 'Client ID da OndaPay não configurado',
+      solution: 'Obtenha no painel da OndaPay e configure no .env'
+    });
+  }
+  if (!process.env.ONDAPAY_CLIENT_SECRET) {
+    errors.push({
+      var: 'ONDAPAY_CLIENT_SECRET',
+      message: 'Client Secret da OndaPay não configurado',
+      solution: 'Obtenha no painel da OndaPay e configure no .env'
+    });
+  }
+
+  // 5. ONDAPAY_WEBHOOK_SECRET - Essencial para validar webhooks
+  if (!process.env.ONDAPAY_WEBHOOK_SECRET) {
+    errors.push({
+      var: 'ONDAPAY_WEBHOOK_SECRET',
+      message: 'Webhook Secret não configurado (CRÍTICO para segurança)',
+      solution: 'Obtenha no painel da OndaPay - previne fraude de pagamentos'
+    });
+  }
+
+  // 6. ALLOWED_ORIGINS - Obrigatório em produção
+  if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
+    errors.push({
+      var: 'ALLOWED_ORIGINS',
+      message: 'Origens permitidas não configuradas (obrigatório em produção)',
+      solution: 'Configure ALLOWED_ORIGINS com domínios permitidos (ex: https://exemplo.com,https://www.exemplo.com)'
+    });
+  }
+
+  // 7. Firebase - Avisar se não configurado (não é crítico)
+  if (!process.env.FIREBASE_CREDENTIALS_BASE64 && !process.env.FIREBASE_API_KEY) {
+    warnings.push({
+      var: 'FIREBASE_*',
+      message: 'Credenciais Firebase não configuradas',
+      solution: 'Notificações push não funcionarão. Configure se necessário.'
+    });
+  }
+
+  // 8. REDIS_URL - Avisar se não configurado em produção
+  if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL && !process.env.USE_REDIS) {
+    warnings.push({
+      var: 'REDIS_URL',
+      message: 'Redis não configurado em produção',
+      solution: 'Sessões serão voláteis. Configure REDIS_URL para sessões persistentes.'
+    });
+  }
+
+  // Exibe erros
+  if (errors.length > 0) {
+    console.error('\n❌ ERROS CRÍTICOS - Variáveis de ambiente obrigatórias não configuradas:\n');
+    errors.forEach(({ var: varName, message, solution }) => {
+      console.error(`  ⚠️  ${varName}:`);
+      console.error(`     ${message}`);
+      console.error(`     💡 Solução: ${solution}\n`);
+    });
+    console.error('🛑 O servidor não pode iniciar sem essas variáveis.\n');
+    process.exit(1);
+  }
+
+  // Exibe avisos
+  if (warnings.length > 0) {
+    console.warn('\n⚠️  AVISOS - Configurações recomendadas:\n');
+    warnings.forEach(({ var: varName, message, solution }) => {
+      console.warn(`  ⚡ ${varName}:`);
+      console.warn(`     ${message}`);
+      console.warn(`     💡 ${solution}\n`);
+    });
+  }
+
+  console.log('✅ Todas as variáveis de ambiente críticas validadas com sucesso\n');
 }
 
-// CORREÇÃO CRÍTICA #2: Validar que ADMIN_PASS está em formato bcrypt
+// Executa validação antes de qualquer outra coisa
+validateEnvironmentVariables();
+
+// Para compatibilidade com código existente
 const passwordHash = process.env.ADMIN_PASS;
-if (!passwordHash || (!passwordHash.startsWith('$2b$') && !passwordHash.startsWith('$2a$'))) {
-  console.error('❌ ERRO CRÍTICO: ADMIN_PASS deve ser hash bcrypt');
-  console.error('Senhas em texto plano NÃO são mais suportadas por segurança');
-  console.error('Execute: npm run hash-password sua_senha_aqui');
-  process.exit(1);
-}
-
-// Validar credenciais OndaPay
-if (!process.env.ONDAPAY_CLIENT_ID || !process.env.ONDAPAY_CLIENT_SECRET) {
-  console.error('❌ ERRO: Credenciais OndaPay não configuradas');
-  console.error('Configure ONDAPAY_CLIENT_ID e ONDAPAY_CLIENT_SECRET no .env');
-  process.exit(1);
-}
-
-// CORREÇÃO CRÍTICA #1: Validar ONDAPAY_WEBHOOK_SECRET obrigatório
-if (!process.env.ONDAPAY_WEBHOOK_SECRET) {
-  console.error('❌ ERRO CRÍTICO: ONDAPAY_WEBHOOK_SECRET não configurado');
-  console.error('Este secret é essencial para validar webhooks e prevenir fraude');
-  console.error('Obtenha este valor no painel da OndaPay');
-  process.exit(1);
-}
-
-console.log('✅ Todas as variáveis de ambiente críticas configuradas');
 
 // ============================================
 // FUNÇÕES UTILITÁRIAS DE SEGURANÇA
@@ -97,14 +191,6 @@ function applyCsrf(req, res, next) {
 // CRÍTICO: Confiar no proxy reverso (necessário para domcloud.co, heroku, etc)
 // Isso permite que o Express reconheça HTTPS quando atrás de um proxy
 app.set('trust proxy', 1);
-
-// CORREÇÃO: Validação de CORS em produção
-if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
-  console.error('❌ ERRO CRÍTICO: ALLOWED_ORIGINS não está definido em produção!');
-  console.error('Configure ALLOWED_ORIGINS no .env com os domínios permitidos.');
-  console.error('Exemplo: ALLOWED_ORIGINS=https://seu-dominio.com,https://www.seu-dominio.com');
-  process.exit(1);
-}
 
 // CORREÇÃO CRÍTICA: Configuração segura do CORS
 const corsOptions = {
@@ -383,12 +469,11 @@ async function sendPushNotification(title, body) {
 // MODIFICADO: O middleware agora trata requisições de API (fetch) de forma diferente
 // MODIFICADO: A verificação de API agora é baseada na URL
 function requireLogin(req, res, next) {
-  // CORREÇÃO: Só loga dados sensíveis em desenvolvimento
+  // CORREÇÃO: Não loga dados sensíveis (Session IDs, cookies)
   if (process.env.NODE_ENV !== 'production') {
     console.log('[REQUIRE_LOGIN] Path:', req.path);
-    console.log('[REQUIRE_LOGIN] Session ID:', req.sessionID);
+    console.log('[REQUIRE_LOGIN] Has session:', !!req.sessionID);
     console.log('[REQUIRE_LOGIN] Session loggedin:', req.session.loggedin);
-    console.log('[REQUIRE_LOGIN] Cookies:', req.cookies);
   }
 
   if (req.session.loggedin) {
@@ -419,6 +504,24 @@ const loginLimiter = rateLimit({
   max: 5, // 5 tentativas de login
   message: 'Muitas tentativas de login. Tente novamente em 15 minutos.',
   skipSuccessfulRequests: true // Não conta logins bem-sucedidos
+});
+
+// NOVO: Rate limiting para webhook (proteção contra replay attacks e DoS)
+const webhookLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minuto
+  max: 30, // 30 webhooks por minuto (OndaPay não envia mais que isso)
+  message: 'Muitos webhooks recebidos. Tente novamente em 1 minuto.',
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// NOVO: Rate limiting para verificação de status (proteção contra DoS)
+const statusCheckLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minuto
+  max: 60, // 60 verificações por minuto (polling de 5s = 12/min, margem de segurança)
+  message: 'Muitas verificações de status. Aguarde um momento.',
+  standardHeaders: true,
+  legacyHeaders: false
 });
 
 // CORREÇÃO CRÍTICA #2 + #5: Rota de autenticação com bcrypt e CSRF
@@ -456,9 +559,9 @@ app.post('/auth', loginLimiter, applyCsrf, async (req, res) => {
             return res.status(500).json({ error: 'Erro ao salvar sessão' });
           }
           console.log('[AUTH] ✅ Login bem-sucedido');
-          // CORREÇÃO: Não loga Session ID em produção
+          // CORREÇÃO: Não loga dados sensíveis (Session IDs)
           if (process.env.NODE_ENV !== 'production') {
-            console.log('[AUTH] Novo Session ID:', req.sessionID);
+            console.log('[AUTH] Session created:', !!req.sessionID);
             console.log('[AUTH] Session loggedin:', req.session.loggedin);
           }
           // Retorna JSON para requisições AJAX
@@ -673,6 +776,49 @@ app.get('/api/csrf-token', (req, res) => {
   }
 });
 
+// NOVO: Endpoint de health check para monitoramento (público)
+app.get('/health', async (req, res) => {
+  const startTime = Date.now();
+  const healthCheck = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    checks: {
+      database: 'unknown',
+      memory: 'ok'
+    }
+  };
+
+  try {
+    // Verifica conectividade com o banco de dados
+    await sequelize.authenticate();
+    healthCheck.checks.database = 'ok';
+
+    // Verifica uso de memória (alerta se > 90%)
+    const memUsage = process.memoryUsage();
+    const heapUsedPercent = (memUsage.heapUsed / memUsage.heapTotal) * 100;
+    if (heapUsedPercent > 90) {
+      healthCheck.checks.memory = 'warning';
+      healthCheck.status = 'degraded';
+    }
+
+    healthCheck.responseTime = Date.now() - startTime;
+
+    // Retorna 200 se tudo OK, 503 se degradado
+    const statusCode = healthCheck.status === 'ok' ? 200 : 503;
+    res.status(statusCode).json(healthCheck);
+
+  } catch (error) {
+    healthCheck.status = 'error';
+    healthCheck.checks.database = 'error';
+    healthCheck.error = error.message;
+    healthCheck.responseTime = Date.now() - startTime;
+
+    console.error('[Health Check] Erro:', error);
+    res.status(503).json(healthCheck);
+  }
+});
+
 // NOVO: Endpoint de diagnóstico para verificar configurações (apenas quando logado)
 app.get('/api/diagnostics', requireLogin, async (req, res) => {
   try {
@@ -880,7 +1026,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
 
 // CORRIGIDO: Webhook com verificação de assinatura HMAC implementada
 // CORREÇÃO CRÍTICA #1: Webhook com verificação HMAC obrigatória
-app.post('/ondapay-webhook', async (req, res) => {
+app.post('/ondapay-webhook', webhookLimiter, async (req, res) => {
     console.log('--- [WEBHOOK LOG] --- Webhook Recebido');
 
     try {
@@ -961,7 +1107,7 @@ app.post('/ondapay-webhook', async (req, res) => {
   });
 
 // Endpoint para o cliente verificar o status do pagamento com CSRF
-app.post('/check-local-status', applyCsrf, async (req, res) => {
+app.post('/check-local-status', statusCheckLimiter, applyCsrf, async (req, res) => {
     try {
       const { id } = req.body;
       if (!id) return res.status(400).json({ error: "ID da transação não fornecido." });
@@ -1040,9 +1186,12 @@ app.put('/api/products/reorder', requireLogin, applyCsrf, async (req, res) => {
       if (!order || !Array.isArray(order)) {
         return res.status(400).json({ error: 'Array de ordem é obrigatório.' });
       }
-      for (let i = 0; i < order.length; i++) {
-        await Product.update({ orderIndex: i }, { where: { id: order[i] } });
-      }
+      // CORREÇÃO: Usar Promise.all para evitar N+1 query (executa em paralelo)
+      await Promise.all(
+        order.map((productId, index) =>
+          Product.update({ orderIndex: index }, { where: { id: productId } })
+        )
+      );
       res.json({ message: 'Ordem atualizada com sucesso.' });
     } catch (error)      {
       console.error(error);
@@ -1110,7 +1259,9 @@ app.post('/api/devices', requireLogin, applyCsrf, async (req, res) => {
     });
 
     if (created) {
-      console.log('Novo dispositivo registrado para notificações:', device.token);
+      // CORREÇÃO: Não loga token completo (dado sensível)
+      const maskedToken = device.token.substring(0, 8) + '...' + device.token.substring(device.token.length - 4);
+      console.log('Novo dispositivo registrado para notificações:', maskedToken);
       res.status(201).json({ message: 'Dispositivo registrado com sucesso.' });
     } else {
       res.status(200).json({ message: 'Dispositivo já estava registrado.' });
@@ -1177,12 +1328,54 @@ async function startServer() {
     console.log('✅ Token OndaPay obtido com sucesso');
 
     // Agora sim inicia o servidor
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`✅ Servidor rodando na porta ${PORT}`);
       console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🗄️  Sessões: ${sessionStore ? 'Redis (persistente)' : 'Memória (volátil)'}`);
       console.log('✨ Sistema pronto para receber requisições');
     });
+
+    // NOVO: Graceful shutdown para evitar connection leaks
+    const gracefulShutdown = async (signal) => {
+      console.log(`\n🛑 ${signal} recebido. Iniciando graceful shutdown...`);
+
+      // 1. Para de aceitar novas conexões
+      server.close(async () => {
+        console.log('📡 Servidor HTTP fechado (não aceita mais conexões)');
+
+        try {
+          // 2. Fecha conexão com banco de dados
+          await sequelize.close();
+          console.log('🗄️  Conexão com banco de dados fechada');
+
+          // 3. Fecha Redis se estiver em uso
+          if (sessionStore && sessionStore.client) {
+            await new Promise((resolve) => {
+              sessionStore.client.quit(() => {
+                console.log('🔴 Conexão com Redis fechada');
+                resolve();
+              });
+            });
+          }
+
+          console.log('✅ Graceful shutdown concluído');
+          process.exit(0);
+        } catch (error) {
+          console.error('❌ Erro durante graceful shutdown:', error);
+          process.exit(1);
+        }
+      });
+
+      // Timeout: força saída após 30 segundos se shutdown não completar
+      setTimeout(() => {
+        console.error('⚠️  Graceful shutdown timeout. Forçando saída...');
+        process.exit(1);
+      }, 30000);
+    };
+
+    // Registra handlers para sinais de encerramento
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   } catch (error) {
     console.error('❌ Erro ao inicializar servidor:', error);
     console.error('💥 O servidor não foi iniciado devido a erros críticos');

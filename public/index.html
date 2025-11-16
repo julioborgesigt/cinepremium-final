@@ -355,6 +355,7 @@
     let selectedProduct = null;
     let transactionId = null;
     let pollingInterval = null;
+    let pollingTimeout = null; // NOVO: Timeout para parar polling após 10 minutos
     let qrCodeExpirationTimestamp = null; // NOVO: Variável para guardar o tempo de expiração
 
     // CSRF Token cache
@@ -635,7 +636,9 @@
         thankYouContainer.appendChild(thankYouCard);
         mainContainer.appendChild(thankYouContainer);
 
+        // Limpa polling e timeout
         clearInterval(pollingInterval);
+        if (pollingTimeout) clearTimeout(pollingTimeout);
       } else {
         document.getElementById('paymentStatus').textContent = 'Aguardando confirmação do pagamento...';
       }
@@ -766,8 +769,21 @@ document.getElementById('generateBtn').addEventListener('click', async function(
       transactionId = data.id;
       qrCodeExpirationTimestamp = data.expirationTimestamp;
       document.getElementById('transactionId').textContent = 'ID da Transação: ' + transactionId;
+
+      // Limpa polling anterior se existir
       if (pollingInterval) clearInterval(pollingInterval);
+      if (pollingTimeout) clearTimeout(pollingTimeout);
+
+      // Inicia novo polling
       pollingInterval = setInterval(checkPaymentStatus, 5000);
+
+      // NOVO: Para o polling automaticamente após 10 minutos (DoS prevention)
+      pollingTimeout = setTimeout(() => {
+        clearInterval(pollingInterval);
+        document.getElementById('paymentStatus').textContent =
+          'Tempo limite de verificação excedido. Recarregue a página e gere um novo QR Code se necessário.';
+        document.getElementById('paymentStatus').style.color = '#ff9800'; // Laranja
+      }, 10 * 60 * 1000); // 10 minutos
     }
     
     // CORRIGIDO: Substituído alert() por toast notification

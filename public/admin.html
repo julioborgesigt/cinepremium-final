@@ -273,9 +273,18 @@
 
     <div id="historyResults"></div>
   </div>
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <!--
+    SEGURANÇA: Scripts CDN com Subresource Integrity (SRI)
+
+    Para gerar os hashes SRI, execute: node generate-sri.js
+    Ou use: https://www.srihash.org/
+
+    Adicione integrity="sha384-HASH_AQUI" quando tiver os hashes.
+    O atributo crossorigin="anonymous" já está configurado.
+  -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js" crossorigin="anonymous"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js" crossorigin="anonymous"></script>
   <script>
     // CSRF Token cache
     let csrfToken = null;
