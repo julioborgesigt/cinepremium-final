@@ -6,272 +6,626 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net https://firebaseinstallations.googleapis.com https://fcmregistrations.googleapis.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://www.gstatic.com https://firebaseinstallations.googleapis.com https://fcmregistrations.googleapis.com https://fcm.googleapis.com; font-src 'self' data:;">
   <title>Admin - Produtos</title>
   <style>
-    /* Estilos Gerais */
-    body {
-      font-family: Arial, sans-serif;
-      background: #f4f4f4;
-      margin: 0;
-      padding: 0;
-    }
-    
-    .container {
-      max-width: 900px;
-      margin: auto;
-      background: #fff;
-      padding: 20px;
-      border-radius: 12px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-      margin-top: 20px;
-    }
-    
-    h1, h2 {
-      text-align: center;
-      color: #333;
+    /* Reset e Estilos Gerais */
+    * {
+      box-sizing: border-box;
     }
 
-    /* Estilização do Formulário */
-    form {
-      background: #fafafa;
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      margin: 0;
       padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Header */
+    .admin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       margin-bottom: 30px;
+      padding-bottom: 20px;
+      border-bottom: 2px solid #e0e0e0;
     }
-    
+
+    h1 {
+      margin: 0;
+      color: #2c3e50;
+      font-size: 2rem;
+      font-weight: 600;
+    }
+
+    .logout-link {
+      padding: 10px 20px;
+      background: #e74c3c;
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 500;
+      transition: all 0.3s ease;
+    }
+
+    .logout-link:hover {
+      background: #c0392b;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(231, 76, 60, 0.3);
+    }
+
+    /* Seções */
+    .section {
+      margin-bottom: 40px;
+    }
+
+    .section-title {
+      color: #2c3e50;
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-title::before {
+      content: '';
+      width: 4px;
+      height: 24px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 2px;
+    }
+
+    /* Formulário */
+    .form-card {
+      background: #f8f9fa;
+      padding: 25px;
+      border-radius: 12px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+    }
+
     label {
-      display: block;
-      margin: 10px 0 5px;
-      font-weight: bold;
-      color: #333;
+      font-weight: 600;
+      color: #2c3e50;
+      margin-bottom: 8px;
+      font-size: 0.95rem;
     }
-    
+
     input, textarea, select {
       width: 100%;
-      padding: 10px;
-      margin-top: 5px;
-      border: 1px solid #ccc;
-      border-radius: 5px;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
       font-size: 16px;
+      transition: all 0.3s ease;
+      font-family: inherit;
     }
 
-    /* Estilo específico para o input de arquivo */
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
     input[type="file"] {
-      padding: 3px;
+      padding: 8px;
+      cursor: pointer;
+    }
+
+    textarea {
+      min-height: 100px;
+      resize: vertical;
     }
 
     button {
-      display: block;
-      width: 100%;
-      padding: 10px;
-      background: #007BFF;
+      padding: 14px 24px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
       border: none;
-      border-radius: 5px;
+      border-radius: 8px;
       cursor: pointer;
       font-size: 16px;
-      margin-top: 10px;
-      transition: background 0.3s ease-in-out;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      width: 100%;
     }
 
     button:hover {
-      background: #0056b3;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
     }
 
-    /* Grid de Produtos */
-    .product-grid {
+    button:active {
+      transform: translateY(0);
+    }
+
+    /* Seção Colapsável */
+    .collapsible-section {
+      margin-bottom: 30px;
+    }
+
+    .collapse-header {
       display: flex;
-      flex-wrap: wrap;
-      gap: 20px;
-      justify-content: center;
-    }
-
-    .product-card {
-      width: 250px;
-      background: #ffffff;
-      border-radius: 8px;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-      text-align: center;
-      padding: 15px;
-      position: relative;
-      transition: transform 0.2s ease-in-out;
-    }
-
-    .product-card:hover {
-      transform: scale(1.03);
-    }
-
-    .product-card img {
-      max-width: 100%;
-      max-height: 120px;
-      border-radius: 5px;
-    }
-
-    .delete-button {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: red;
-      color: white;
-      border: none;
-      border-radius: 50%;
-      width: 30px;
-      height: 30px;
-      cursor: pointer;
-      font-weight: bold;
-    }
-
-    /* Estilos do Filtro de Histórico */
-    #historySearch {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
       justify-content: space-between;
       align-items: center;
-      background: #fafafa;
-      padding: 15px;
-      border-radius: 8px;
-      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
-      margin-top: 30px;
-    }
-
-    #historySearch input, #historySearch select {
-      padding: 10px;
-      font-size: 16px;
-      border-radius: 5px;
-      border: 1px solid #ccc;
-      background: #fff;
-      width: 100%;
-    }
-
-    /* Botões dentro da área de filtros */
-    #searchButton {
-      width: 100%;
-      padding: 10px;
-      background: #007BFF;
-      color: white;
-      border: none;
-      border-radius: 5px;
       cursor: pointer;
-      font-size: 16px;
-      margin-top: 10px;
-      transition: background 0.3s ease-in-out;
+      padding: 15px 20px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border: 2px solid #e0e0e0;
+      transition: all 0.3s ease;
+      user-select: none;
     }
 
-    #searchButton:hover {
-      background: #0056b3;
+    .collapse-header:hover {
+      background: #e9ecef;
+      border-color: #667eea;
     }
 
-    /* Estilização da Tabela */
-    #historyResults table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 15px;
-      background: #fff;
-      border-radius: 8px;
+    .collapse-header h2 {
+      margin: 0;
+      color: #2c3e50;
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+
+    .collapse-toggle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #667eea;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: bold;
+      transition: transform 0.3s ease;
+    }
+
+    .collapse-toggle.open {
+      transform: rotate(180deg);
+    }
+
+    .collapse-content {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease;
+    }
+
+    .collapse-content.open {
+      max-height: 5000px;
+      padding-top: 20px;
+    }
+
+    /* Lista de Produtos */
+    .product-list {
+      background: #f8f9fa;
+      border-radius: 12px;
+      border: 1px solid #e0e0e0;
       overflow: hidden;
     }
 
-    #historyResults th, #historyResults td {
-      padding: 12px;
-      border: 1px solid #ddd;
-      text-align: left;
+    .product-item {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding: 15px 20px;
+      background: white;
+      border-bottom: 1px solid #e0e0e0;
+      transition: all 0.2s ease;
+      cursor: move;
+    }
+
+    .product-item:last-child {
+      border-bottom: none;
+    }
+
+    .product-item:hover {
+      background: #f8f9fa;
+      transform: translateX(5px);
+    }
+
+    .product-item.dragging {
+      opacity: 0.5;
+      background: #e9ecef;
+    }
+
+    .product-drag-handle {
+      color: #95a5a6;
+      font-size: 20px;
+      cursor: grab;
+    }
+
+    .product-drag-handle:active {
+      cursor: grabbing;
+    }
+
+    .product-image {
+      width: 60px;
+      height: 60px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 2px solid #e0e0e0;
+    }
+
+    .product-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .product-title {
+      font-weight: 600;
+      color: #2c3e50;
+      margin: 0 0 5px 0;
+      font-size: 1.1rem;
+    }
+
+    .product-price {
+      color: #27ae60;
+      font-weight: 600;
+      font-size: 1.1rem;
+      margin: 0 0 5px 0;
+    }
+
+    .product-description {
+      color: #7f8c8d;
+      font-size: 0.9rem;
+      margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .product-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .delete-button {
+      background: #e74c3c;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      width: 40px;
+      height: 40px;
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: bold;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .delete-button:hover {
+      background: #c0392b;
+      transform: scale(1.1);
+    }
+
+    .empty-state {
+      padding: 40px;
+      text-align: center;
+      color: #95a5a6;
+      font-size: 1.1rem;
+    }
+
+    /* Filtros de Histórico */
+    .history-filters {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 12px;
+      border: 1px solid #e0e0e0;
+      margin-bottom: 20px;
+    }
+
+    .filter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+
+    #searchButton {
+      width: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    /* Tabela de Histórico */
+    .table-wrapper {
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid #e0e0e0;
+      background: white;
+    }
+
+    #historyResults table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
     }
 
     #historyResults th {
-      background: #007BFF;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
-      font-weight: bold;
+      font-weight: 600;
+      padding: 15px;
+      text-align: left;
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
 
-    #historyResults tr:nth-child(even) {
-      background: #f9f9f9;
+    #historyResults td {
+      padding: 12px 15px;
+      border-bottom: 1px solid #e0e0e0;
+      color: #2c3e50;
+    }
+
+    #historyResults tr:last-child td {
+      border-bottom: none;
     }
 
     #historyResults tr:hover {
-      background: #f1f1f1;
+      background: #f8f9fa;
     }
 
-    /* Responsividade */
-    @media (max-width: 768px) {
-      .product-grid {
-        flex-direction: column;
-        align-items: center;
-      }
-      .product-card {
-        width: 90%;
-      }
-      #historySearch {
-        flex-direction: column;
-        gap: 10px;
-      }
-      #historySearch input, #historySearch select, #historySearch button {
-        width: 100%;
-      }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      white-space: nowrap;
     }
 
-    /* NOVO: Estilos para Toast Notifications */
+    .status-sucesso {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status-gerado {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .status-falhou {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .status-expirado {
+      background: #e2e3e5;
+      color: #383d41;
+    }
+
+    .transaction-id {
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      color: #6c757d;
+    }
+
+    /* Toast Notifications */
     .toast {
       position: fixed;
       top: 20px;
       right: 20px;
       background: #333;
       color: #fff;
-      padding: 15px 20px;
-      border-radius: 5px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      padding: 16px 24px;
+      border-radius: 12px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.3);
       z-index: 9999;
       opacity: 0;
-      transition: opacity 0.3s ease-in-out;
-      max-width: 90%;
-      word-wrap: break-word;
+      transition: opacity 0.3s ease;
+      max-width: 400px;
+      font-weight: 500;
     }
+
     .toast.show {
       opacity: 1;
     }
+
     .toast.success {
-      background: #4CAF50;
+      background: linear-gradient(135deg, #28a745, #20c997);
     }
+
     .toast.error {
-      background: #f44336;
+      background: linear-gradient(135deg, #dc3545, #c82333);
     }
+
     .toast.warning {
-      background: #ff9800;
+      background: linear-gradient(135deg, #ffc107, #ff9800);
+    }
+
+    /* Botão de Notificações */
+    .notification-button {
+      background: linear-gradient(135deg, #28a745, #20c997);
+      margin-bottom: 20px;
+    }
+
+    .notification-button:hover {
+      box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
+    }
+
+    /* Responsividade */
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+
+      .container {
+        padding: 20px;
+      }
+
+      h1 {
+        font-size: 1.5rem;
+      }
+
+      .admin-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: flex-start;
+      }
+
+      .logout-link {
+        width: 100%;
+        text-align: center;
+      }
+
+      .section-title {
+        font-size: 1.25rem;
+      }
+
+      .filter-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .product-item {
+        flex-wrap: wrap;
+      }
+
+      .product-info {
+        flex: 1 1 100%;
+        order: 3;
+      }
+
+      .product-image {
+        width: 50px;
+        height: 50px;
+      }
+
+      #historyResults {
+        font-size: 0.9rem;
+      }
+
+      #historyResults th,
+      #historyResults td {
+        padding: 10px 8px;
+      }
+
+      .toast {
+        left: 10px;
+        right: 10px;
+        max-width: none;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .product-drag-handle {
+        display: none;
+      }
+
+      .product-item {
+        padding: 12px 15px;
+      }
+
+      #historyResults table {
+        font-size: 0.85rem;
+      }
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Admin - Gerenciar Produtos</h1>
-    <a href="/logout" style="display: block; text-align: center; margin-bottom: 20px;">Sair!</a>
-    <form id="productForm">
-      <label for="title">Título:</label>
-      <input type="text" id="title" required>
-      
-      <label for="price">Preço (centavos):</label>
-      <input type="number" id="price" required>
-      
-      <label for="imageFile">Imagem:</label>
-      <input type="file" id="imageFile" accept="image/*" required>
-      <input type="hidden" id="imageBase64">
-      <label for="description">Descrição:</label>
-      <textarea id="description"></textarea>
-      
-      <button type="submit">Adicionar Produto</button>
-    </form>
-    
-    <h2>Produtos Existentes</h2>
-    <div class="product-grid" id="productGrid"></div>
+    <!-- Header -->
+    <div class="admin-header">
+      <h1>🎬 Painel de Administração</h1>
+      <a href="/logout" class="logout-link">Sair</a>
+    </div>
 
-    <h2>Histórico de Compras</h2>
-    <div id="historySearch">
-      <input type="text" id="searchNome" placeholder="Buscar por Nome">
-      <input type="text" id="searchTelefone" placeholder="Buscar por Telefone">
-      <select id="mes"></select>
-      <select id="ano"></select>
-      <button id="searchButton">Buscar</button>
+    <!-- Seção: Adicionar Produto -->
+    <div class="section">
+      <h2 class="section-title">Adicionar Novo Produto</h2>
+      <div class="form-card">
+        <form id="productForm" class="form-grid">
+          <div class="form-group">
+            <label for="title">Título do Produto</label>
+            <input type="text" id="title" placeholder="Ex: Ingresso Cinema Premium" required>
+          </div>
+
+          <div class="form-group">
+            <label for="price">Preço (em centavos)</label>
+            <input type="number" id="price" placeholder="Ex: 2500 = R$ 25,00" required>
+          </div>
+
+          <div class="form-group">
+            <label for="imageFile">Imagem do Produto</label>
+            <input type="file" id="imageFile" accept="image/*" required>
+            <input type="hidden" id="imageBase64">
+          </div>
+
+          <div class="form-group">
+            <label for="description">Descrição</label>
+            <textarea id="description" placeholder="Descreva os detalhes do produto..."></textarea>
+          </div>
+
+          <button type="submit">➕ Adicionar Produto</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Seção: Produtos Existentes (Colapsável) -->
+    <div class="collapsible-section">
+      <div class="collapse-header" id="productsCollapseHeader">
+        <h2>📦 Produtos Existentes</h2>
+        <div class="collapse-toggle" id="productsToggle">▼</div>
+      </div>
+      <div class="collapse-content" id="productsCollapseContent">
+        <div class="product-list" id="productList"></div>
+      </div>
+    </div>
+
+    <!-- Seção: Histórico de Compras -->
+    <div class="section">
+      <h2 class="section-title">📊 Histórico de Compras</h2>
+
+      <div class="history-filters">
+        <div class="filter-grid">
+          <div class="form-group">
+            <label for="searchNome">Nome do Cliente</label>
+            <input type="text" id="searchNome" placeholder="Buscar por nome...">
+          </div>
+
+          <div class="form-group">
+            <label for="searchTelefone">Telefone</label>
+            <input type="text" id="searchTelefone" placeholder="(00) 00000-0000">
+          </div>
+
+          <div class="form-group">
+            <label for="mes">Mês</label>
+            <select id="mes"></select>
+          </div>
+
+          <div class="form-group">
+            <label for="ano">Ano</label>
+            <select id="ano"></select>
+          </div>
+        </div>
+        <button id="searchButton">🔍 Buscar</button>
       </div>
 
-    <div id="historyResults"></div>
+      <div id="historyResults"></div>
+    </div>
   </div>
   <!--
     SEGURANÇA: Scripts CDN com Subresource Integrity (SRI)
@@ -454,93 +808,117 @@
       }
     });
     
-    // Carrega os produtos e exibe-os em cards
-    // CORRIGIDO: Removido innerHTML para prevenir XSS
+    // Carrega os produtos e exibe-os em lista
     async function loadProducts() {
       try {
         const response = await authenticatedFetch('/api/products');
         const products = await response.json();
-        const grid = document.getElementById('productGrid');
-        grid.innerHTML = '';
-        products.forEach(product => {
-          const card = document.createElement('div');
-          card.className = 'product-card';
-          card.setAttribute('data-id', product.id);
+        const list = document.getElementById('productList');
+        list.innerHTML = '';
 
-          // Botão de deletar
-          const deleteBtn = document.createElement('button');
-          deleteBtn.className = 'delete-button';
-          deleteBtn.textContent = 'x';
-          deleteBtn.addEventListener('click', () => deleteProduct(product.id));
+        if (products.length === 0) {
+          const emptyState = document.createElement('div');
+          emptyState.className = 'empty-state';
+          emptyState.textContent = 'Nenhum produto cadastrado ainda.';
+          list.appendChild(emptyState);
+          return;
+        }
+
+        products.forEach(product => {
+          const item = document.createElement('div');
+          item.className = 'product-item';
+          item.setAttribute('data-id', product.id);
+
+          // Handle de arrastar
+          const dragHandle = document.createElement('div');
+          dragHandle.className = 'product-drag-handle';
+          dragHandle.textContent = '☰';
 
           // Imagem
           const img = document.createElement('img');
+          img.className = 'product-image';
           img.src = product.image;
           img.alt = product.title;
           img.onerror = function() { this.style.display = 'none'; };
 
-          // Título
+          // Informações do produto
+          const info = document.createElement('div');
+          info.className = 'product-info';
+
           const title = document.createElement('h3');
+          title.className = 'product-title';
           title.textContent = product.title;
 
-          // Preço
           const price = document.createElement('p');
-          price.textContent = `Preço: R$${(product.price/100).toFixed(2)}`;
+          price.className = 'product-price';
+          price.textContent = `R$ ${(product.price/100).toFixed(2)}`;
 
-          // Descrição
           const desc = document.createElement('p');
-          desc.textContent = product.description || '';
+          desc.className = 'product-description';
+          desc.textContent = product.description || 'Sem descrição';
 
-          // Monta o card
-          card.appendChild(deleteBtn);
-          card.appendChild(img);
-          card.appendChild(title);
-          card.appendChild(price);
-          card.appendChild(desc);
+          info.appendChild(title);
+          info.appendChild(price);
+          info.appendChild(desc);
 
-          grid.appendChild(card);
+          // Ações
+          const actions = document.createElement('div');
+          actions.className = 'product-actions';
+
+          const deleteBtn = document.createElement('button');
+          deleteBtn.className = 'delete-button';
+          deleteBtn.textContent = '×';
+          deleteBtn.addEventListener('click', () => deleteProduct(product.id));
+
+          actions.appendChild(deleteBtn);
+
+          // Monta o item
+          item.appendChild(dragHandle);
+          item.appendChild(img);
+          item.appendChild(info);
+          item.appendChild(actions);
+
+          list.appendChild(item);
         });
-        // Inicializa o Sortable para reordenar os cards
-        new Sortable(grid, {
-          animation: 150, // Adiciona uma animação suave ao arrastar
+
+        // Inicializa o Sortable para reordenar os itens
+        new Sortable(list, {
+          animation: 150,
+          handle: '.product-drag-handle',
+          ghostClass: 'dragging',
           onEnd: function(evt) {
-              // --- INÍCIO DA CORREÇÃO ---
-              
-              // 1. Pega todos os elementos filhos do grid na nova ordem.
-              const items = grid.children;
+            const items = list.children;
+            const newOrder = Array.from(items)
+              .filter(item => item.classList.contains('product-item'))
+              .map(item => item.getAttribute('data-id'));
 
-              // 2. Cria o array 'newOrder' mapeando os itens e pegando o 'data-id' de cada um.
-              const newOrder = Array.from(items).map(item => item.getAttribute('data-id'));
-
-              // --- FIM DA CORREÇÃO ---
-
-              // Agora a variável 'newOrder' existe e contém a lista de IDs na ordem correta.
-              authenticatedFetch('/api/products/reorder', { 
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ order: newOrder })
-              })
-              .then(response => {
-                  if (!response.ok) {
-                      throw new Error('Falha ao reordenar produtos.');
-                  }
-                  return response.json();
-              })
-              .then(data => console.log(data.message)) // Exibe a mensagem de sucesso
-              .catch(error => {
-                  if (error.message !== 'Sessão expirada') {
-                      console.error('Erro ao reordenar:', error);
-                      // CORREÇÃO: Usar showToast ao invés de alert
-                      showToast('Ocorreu um erro ao tentar salvar a nova ordem.', 'error');
-                  }
-              });
+            authenticatedFetch('/api/products/reorder', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ order: newOrder })
+            })
+            .then(response => {
+              if (!response.ok) {
+                throw new Error('Falha ao reordenar produtos.');
+              }
+              return response.json();
+            })
+            .then(data => {
+              showToast('Ordem atualizada com sucesso!', 'success');
+            })
+            .catch(error => {
+              if (error.message !== 'Sessão expirada') {
+                console.error('Erro ao reordenar:', error);
+                showToast('Erro ao salvar a nova ordem.', 'error');
+              }
+            });
           }
-      });
+        });
       } catch (error) {
-                if (error.message !== 'Sessão expirada') {
-                    console.error('Erro ao carregar produtos:', error);
-                }
-            }
+        if (error.message !== 'Sessão expirada') {
+          console.error('Erro ao carregar produtos:', error);
+        }
+      }
     }
     
     // Função para excluir um produto
@@ -585,7 +963,7 @@
       }
     }
 
-    // CORRIGIDO: Removido innerHTML para prevenir XSS
+    // Carrega histórico de compras com mais informações
     async function loadHistory() {
       const nome = document.getElementById('searchNome')?.value.trim() || "";
       const telefone = document.getElementById('searchTelefone')?.value.trim() || "";
@@ -603,22 +981,24 @@
         resultsDiv.innerHTML = '';
 
         if (history.length === 0) {
-          const noResultsMsg = document.createElement('p');
-          noResultsMsg.textContent = 'Nenhum registro encontrado.';
-          resultsDiv.appendChild(noResultsMsg);
+          const emptyState = document.createElement('div');
+          emptyState.className = 'empty-state';
+          emptyState.textContent = 'Nenhum registro encontrado para os filtros selecionados.';
+          resultsDiv.appendChild(emptyState);
           return;
         }
 
-        // Cria tabela com createElement
+        // Wrapper para scroll horizontal
+        const tableWrapper = document.createElement('div');
+        tableWrapper.className = 'table-wrapper';
+
+        // Cria tabela
         const table = document.createElement('table');
-        table.style.width = '100%';
-        table.style.textAlign = 'left';
-        table.setAttribute('border', '1');
 
         // Cabeçalho da tabela
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
-        ['Nome', 'Telefone', 'Data/Hora', 'Status'].forEach(headerText => {
+        ['Nome', 'Telefone', 'Data/Hora', 'Status', 'Transaction ID'].forEach(headerText => {
           const th = document.createElement('th');
           th.textContent = headerText;
           headerRow.appendChild(th);
@@ -631,26 +1011,61 @@
         history.forEach(item => {
           const row = document.createElement('tr');
 
+          // Nome
           const nomeCell = document.createElement('td');
           nomeCell.textContent = item.nome;
           row.appendChild(nomeCell);
 
+          // Telefone
           const telefoneCell = document.createElement('td');
           telefoneCell.textContent = formatPhone(item.telefone);
           row.appendChild(telefoneCell);
 
+          // Data/Hora
           const dataCell = document.createElement('td');
-          dataCell.textContent = new Date(item.dataTransacao).toLocaleString('pt-BR');
+          dataCell.textContent = new Date(item.dataTransacao).toLocaleString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
           row.appendChild(dataCell);
 
+          // Status com badge
           const statusCell = document.createElement('td');
-          statusCell.textContent = item.status;
+          const statusBadge = document.createElement('span');
+          statusBadge.className = 'status-badge';
+          statusBadge.textContent = item.status;
+
+          // Adiciona classe específica do status
+          const statusMap = {
+            'Sucesso': 'status-sucesso',
+            'Gerado': 'status-gerado',
+            'Falhou': 'status-falhou',
+            'Expirado': 'status-expirado'
+          };
+          statusBadge.classList.add(statusMap[item.status] || 'status-gerado');
+          statusCell.appendChild(statusBadge);
           row.appendChild(statusCell);
+
+          // Transaction ID
+          const transactionCell = document.createElement('td');
+          if (item.transactionId) {
+            const transactionSpan = document.createElement('span');
+            transactionSpan.className = 'transaction-id';
+            transactionSpan.textContent = item.transactionId;
+            transactionCell.appendChild(transactionSpan);
+          } else {
+            transactionCell.textContent = '-';
+          }
+          row.appendChild(transactionCell);
 
           tbody.appendChild(row);
         });
         table.appendChild(tbody);
-        resultsDiv.appendChild(table);
+        tableWrapper.appendChild(table);
+        resultsDiv.appendChild(tableWrapper);
       } catch (error) {
         if (error.message !== 'Sessão expirada') {
           if (typeof console !== 'undefined' && console.error) {
@@ -671,7 +1086,27 @@
 
     document.getElementById('searchButton').addEventListener('click', loadHistory);
 
+    // Funcionalidade de Collapse para seção de produtos
+    function initializeCollapse() {
+      const collapseHeader = document.getElementById('productsCollapseHeader');
+      const collapseContent = document.getElementById('productsCollapseContent');
+      const collapseToggle = document.getElementById('productsToggle');
+
+      collapseHeader.addEventListener('click', () => {
+        const isOpen = collapseContent.classList.contains('open');
+
+        if (isOpen) {
+          collapseContent.classList.remove('open');
+          collapseToggle.classList.remove('open');
+        } else {
+          collapseContent.classList.add('open');
+          collapseToggle.classList.add('open');
+        }
+      });
+    }
+
     window.onload = () => {
+      initializeCollapse();
       loadProducts();
       carregarMesAno();
       loadHistory();
@@ -845,12 +1280,12 @@
 
       // Adiciona um botão para o admin ativar as notificações
       const notificationButton = document.createElement('button');
-      notificationButton.textContent = 'Ativar Notificações de Venda';
-      notificationButton.style.backgroundColor = '#28a745';
-      notificationButton.style.marginTop = '20px';
+      notificationButton.className = 'notification-button';
+      notificationButton.textContent = '🔔 Ativar Notificações de Venda';
       notificationButton.onclick = () => requestNotificationPermission(firebaseVapidKey);
-      // Insere o botão no container principal
-      document.querySelector('.container').prepend(notificationButton);
+      // Insere o botão após o header
+      const adminHeader = document.querySelector('.admin-header');
+      adminHeader.insertAdjacentElement('afterend', notificationButton);
     });
     
   
