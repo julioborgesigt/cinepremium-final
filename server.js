@@ -1725,6 +1725,106 @@ app.post('/api/update-transaction-status', requireLogin, applyCsrf, async (req, 
   }
 });
 
+// NOVO: Rota para atualizar status de múltiplas transações em massa
+app.post('/api/bulk-update-transactions', requireLogin, applyCsrf, async (req, res) => {
+  const { currentStatus, newStatus, olderThanHours } = req.body;
+
+  console.log('\n🔄 [BULK UPDATE] Iniciando atualização em massa...');
+  console.log(`  - Status atual: ${currentStatus || 'TODOS'}`);
+  console.log(`  - Novo status: ${newStatus}`);
+  console.log(`  - Filtro de tempo: ${olderThanHours ? `Mais de ${olderThanHours}h atrás` : 'Nenhum'}`);
+
+  if (!newStatus) {
+    return res.status(400).json({
+      error: 'Novo status é obrigatório.'
+    });
+  }
+
+  try {
+    // Validação de status
+    const validStatuses = ['Gerado', 'Sucesso', 'Falhou', 'Expirado'];
+
+    if (!validStatuses.includes(newStatus)) {
+      return res.status(400).json({
+        error: `Status inválido. Use: ${validStatuses.join(', ')}`
+      });
+    }
+
+    if (currentStatus && !validStatuses.includes(currentStatus)) {
+      return res.status(400).json({
+        error: `Status atual inválido. Use: ${validStatuses.join(', ')}`
+      });
+    }
+
+    // Constrói os critérios de busca
+    let where = {};
+
+    // Filtro por status atual (se especificado)
+    if (currentStatus) {
+      where.status = currentStatus;
+    }
+
+    // Filtro por tempo (transações mais antigas que X horas)
+    if (olderThanHours && olderThanHours > 0) {
+      const cutoffDate = new Date();
+      cutoffDate.setHours(cutoffDate.getHours() - olderThanHours);
+      where.dataTransacao = { [Op.lte]: cutoffDate };
+    }
+
+    console.log('[BULK UPDATE] 🔍 Buscando transações com critérios:', where);
+
+    // Primeiro, busca as transações que serão atualizadas para mostrar ao admin
+    const transactionsToUpdate = await PurchaseHistory.findAll({ where });
+
+    if (transactionsToUpdate.length === 0) {
+      console.log('[BULK UPDATE] ℹ️  Nenhuma transação encontrada com os critérios especificados');
+      return res.json({
+        success: true,
+        updated: 0,
+        message: 'Nenhuma transação encontrada com os critérios especificados.'
+      });
+    }
+
+    console.log(`[BULK UPDATE] 📋 Encontradas ${transactionsToUpdate.length} transação(ões) para atualizar`);
+
+    // Atualiza em massa
+    const [updatedCount] = await PurchaseHistory.update(
+      { status: newStatus },
+      { where }
+    );
+
+    console.log(`[BULK UPDATE] ✅ ${updatedCount} transação(ões) atualizada(s) para status "${newStatus}"`);
+
+    // Log detalhado das transações atualizadas
+    if (updatedCount > 0 && updatedCount <= 10) {
+      console.log('[BULK UPDATE] 📊 Transações atualizadas:');
+      transactionsToUpdate.forEach(t => {
+        console.log(`  - ID ${t.id}: ${t.nome} (${t.transactionId}) - ${t.status} → ${newStatus}`);
+      });
+    }
+
+    res.json({
+      success: true,
+      updated: updatedCount,
+      message: `${updatedCount} transação(ões) atualizada(s) com sucesso`,
+      details: updatedCount <= 10 ? transactionsToUpdate.map(t => ({
+        id: t.id,
+        transactionId: t.transactionId,
+        nome: t.nome,
+        oldStatus: t.status,
+        newStatus: newStatus
+      })) : null
+    });
+
+  } catch (error) {
+    console.error('[BULK UPDATE] ❌ Erro ao atualizar transações em massa:', error);
+    res.status(500).json({
+      error: 'Erro ao processar atualização em massa',
+      details: error.message
+    });
+  }
+});
+
 // REMOVIDO: Rota de debug removida por questões de segurança
 // Esta rota expunha informações sensíveis e foi removida
 
