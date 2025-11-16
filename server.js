@@ -125,12 +125,15 @@ app.use(helmet({
         "'self'",
         "'unsafe-inline'", // TODO: Remover após migrar scripts inline para arquivos externos
         "https://www.gstatic.com",
-        "https://apis.google.com"
+        "https://apis.google.com",
+        "https://cdn.jsdelivr.net" // SortableJS e outras bibliotecas CDN
       ],
       connectSrc: [
         "'self'",
+        "https://www.gstatic.com", // Firebase source maps
         "https://fcm.googleapis.com",
         "https://fcmregistrations.googleapis.com",
+        "https://firebaseinstallations.googleapis.com", // Firebase installations
         "https://ondapay.app.br",
         "https://api.ondapay.app.br"
       ],
