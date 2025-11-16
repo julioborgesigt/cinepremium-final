@@ -23,6 +23,12 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: DataTypes.NOW,
     },
+    // Valor pago pela compra em centavos
+    valorPago: {
+      type: DataTypes.INTEGER,
+      allowNull: true, // Permitir null para registros antigos
+      defaultValue: 0,
+    },
     // Novo campo para contar as verificações já realizadas
     checkCount: {
       type: DataTypes.INTEGER,
