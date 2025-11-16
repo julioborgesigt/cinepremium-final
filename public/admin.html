@@ -1369,9 +1369,39 @@
       return paginationDiv;
     }
 
-    // Atualiza status de uma transação
+    // Atualiza status de uma transação (atualização manual)
     async function updateTransactionStatus(transactionId, purchaseId) {
-      if (!confirm('Deseja consultar o status atualizado desta transação na OndaPay?')) {
+      // Mostra opções de status para o admin escolher
+      const statusOptions = {
+        'Sucesso': '✅ Sucesso (pagamento confirmado)',
+        'Falhou': '❌ Falhou (pagamento recusado)',
+        'Expirado': '⏱️ Expirado (tempo de pagamento esgotado)'
+      };
+
+      let optionsHtml = 'Escolha o novo status:\n\n';
+      Object.keys(statusOptions).forEach((key, index) => {
+        optionsHtml += `${index + 1}. ${statusOptions[key]}\n`;
+      });
+
+      const choice = prompt(
+        `${optionsHtml}\n⚠️ ATENÇÃO: Esta é uma atualização MANUAL.\nO webhook da OndaPay é a forma recomendada de atualizar status.\n\nDigite o número da opção (1-3):`,
+        ''
+      );
+
+      if (!choice) return; // Cancelou
+
+      const statusKeys = Object.keys(statusOptions);
+      const selectedIndex = parseInt(choice) - 1;
+
+      if (selectedIndex < 0 || selectedIndex >= statusKeys.length) {
+        showToast('Opção inválida', 'error');
+        return;
+      }
+
+      const newStatus = statusKeys[selectedIndex];
+
+      // Confirma a ação
+      if (!confirm(`Confirma atualizar para "${newStatus}"?\n\nTransaction ID: ${transactionId}`)) {
         return;
       }
 
@@ -1379,13 +1409,13 @@
         const response = await authenticatedFetch('/api/update-transaction-status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transactionId })
+          body: JSON.stringify({ transactionId, newStatus })
         });
 
         const result = await response.json();
 
         if (response.ok && result.success) {
-          showToast(`Status atualizado: ${result.newStatus}`, 'success');
+          showToast(result.message, 'success');
           // Recarrega o histórico para mostrar o novo status
           loadHistory(currentPage);
         } else {
