@@ -993,7 +993,12 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
 
       const data = response.data;
 
+      console.log('[GERARQRCODE] 📦 Resposta da OndaPay recebida:');
+      console.log(`  - Transaction ID: ${data.id_transaction}`);
+      console.log(`  - QR Code gerado: ${data.qrcode ? 'Sim' : 'Não'}`);
+
       // Atualiza com transactionId dentro da mesma transação
+      console.log(`[GERARQRCODE] 🔄 Atualizando purchase ID ${purchaseRecord.id} com transactionId ${data.id_transaction}...`);
       await purchaseRecord.update(
         { transactionId: data.id_transaction },
         { transaction: t }
@@ -1001,6 +1006,16 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
 
       // CORREÇÃO: Só commita se TUDO deu certo
       await t.commit();
+      console.log('[GERARQRCODE] ✅ Transação commitada com sucesso!');
+
+      console.log('[GERARQRCODE] 📊 Resumo da compra criada:');
+      console.log(`  - Purchase ID (external_id): ${purchaseRecord.id}`);
+      console.log(`  - Transaction ID (OndaPay): ${data.id_transaction}`);
+      console.log(`  - Nome: ${nome}`);
+      console.log(`  - Telefone: ${telefone}`);
+      console.log(`  - Valor: R$ ${(value / 100).toFixed(2)}`);
+      console.log(`  - Status inicial: ${purchaseRecord.status}`);
+      console.log(`  - Expira em: ${expirationDate.toISOString()}`);
 
       // Envia notificação de nova venda (após commit)
       sendPushNotification(
@@ -1015,7 +1030,8 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         expirationTimestamp: expirationDate.getTime()
       };
 
-      console.log("✅ QR Code gerado (OndaPay):", resultado.id);
+      console.log("[GERARQRCODE] ✅ QR Code gerado com sucesso (OndaPay):", resultado.id);
+      console.log('[GERARQRCODE] ℹ️  Cliente irá começar a fazer polling a cada 5 segundos...\n');
       res.json(resultado);
     } catch (transactionError) {
       // CORREÇÃO: Se qualquer coisa falhar, faz rollback
@@ -1048,16 +1064,24 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
 // CORRIGIDO: Webhook com verificação de assinatura HMAC implementada
 // CORREÇÃO CRÍTICA #1: Webhook com verificação HMAC obrigatória
 app.post('/ondapay-webhook', webhookLimiter, async (req, res) => {
-    console.log('--- [WEBHOOK LOG] --- Webhook Recebido');
+    console.log('\n=====================================');
+    console.log('🔔 [WEBHOOK LOG] Webhook Recebido');
+    console.log('📅 Timestamp:', new Date().toISOString());
+    console.log('🌐 IP:', req.ip);
+    console.log('📦 Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('📄 Body:', JSON.stringify(req.body, null, 2));
+    console.log('=====================================\n');
 
     try {
       // CORREÇÃO CRÍTICA #1: SEMPRE validar assinatura HMAC (secret validado no início do arquivo)
       const signature = req.headers['x-ondapay-signature'];
 
       if (!signature) {
-        console.error('[WEBHOOK] Assinatura ausente. IP:', req.ip);
+        console.error('[WEBHOOK] ❌ Assinatura ausente. IP:', req.ip);
         return res.status(401).json({ error: 'Missing signature' });
       }
+
+      console.log('[WEBHOOK] 🔐 Validando assinatura HMAC...');
 
       // Calcular HMAC esperado
       const computedSignature = crypto
@@ -1067,7 +1091,7 @@ app.post('/ondapay-webhook', webhookLimiter, async (req, res) => {
 
       // Comparação timing-safe
       if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(computedSignature))) {
-        console.error('[WEBHOOK] Assinatura inválida! IP:', req.ip);
+        console.error('[WEBHOOK] ❌ Assinatura inválida! IP:', req.ip);
         // CORREÇÃO: Não logar assinaturas em produção
         if (process.env.NODE_ENV !== 'production') {
           console.error('[WEBHOOK] Recebida:', signature);
@@ -1081,15 +1105,20 @@ app.post('/ondapay-webhook', webhookLimiter, async (req, res) => {
       // Processar webhook
       const { status, transaction_id, external_id } = req.body;
       if (!status || !transaction_id || !external_id) {
-        console.warn(`[WEBHOOK LOG] Webhook recebido com dados incompletos.`, req.body);
+        console.warn(`[WEBHOOK LOG] ⚠️  Webhook recebido com dados incompletos.`, req.body);
         return res.status(400).send('Dados do webhook incompletos.');
       }
-  
+
+      console.log(`[WEBHOOK LOG] 📊 Dados extraídos:`);
+      console.log(`  - Status: ${status}`);
+      console.log(`  - Transaction ID: ${transaction_id}`);
+      console.log(`  - External ID (purchase ID): ${external_id}`);
+
       if (status.toUpperCase() === 'PAID_OUT') {
-        console.log(`[WEBHOOK LOG] Status 'PAID_OUT' detectado para external_id: ${external_id}`);
+        console.log(`[WEBHOOK LOG] 💰 Status 'PAID_OUT' detectado para external_id: ${external_id}`);
         const purchaseId = parseInt(external_id, 10);
         if (isNaN(purchaseId)) {
-          console.error(`[WEBHOOK LOG] Erro: external_id '${external_id}' não é um número válido.`);
+          console.error(`[WEBHOOK LOG] ❌ Erro: external_id '${external_id}' não é um número válido.`);
           return res.status(400).send('external_id inválido.');
         }
 
@@ -1097,20 +1126,26 @@ app.post('/ondapay-webhook', webhookLimiter, async (req, res) => {
         const purchase = await PurchaseHistory.findByPk(purchaseId);
 
         if (!purchase) {
-          console.error(`[WEBHOOK LOG] Erro: Compra com ID ${purchaseId} não encontrada.`);
+          console.error(`[WEBHOOK LOG] ❌ Erro: Compra com ID ${purchaseId} não encontrada.`);
           return res.status(404).send('Compra não encontrada.');
         }
 
+        console.log(`[WEBHOOK LOG] 📋 Compra encontrada:`);
+        console.log(`  - Nome: ${purchase.nome}`);
+        console.log(`  - Transaction ID: ${purchase.transactionId}`);
+        console.log(`  - Status atual: ${purchase.status}`);
+
         // CORREÇÃO: Se já foi processado, retorna sucesso sem fazer nada (idempotência)
         if (purchase.status === 'Sucesso') {
-          console.log(`[WEBHOOK LOG] Webhook duplicado ignorado. Compra ${purchaseId} já foi processada.`);
+          console.log(`[WEBHOOK LOG] ⚠️  Webhook duplicado ignorado. Compra ${purchaseId} já foi processada.`);
           return res.status(200).send({ status: 'already_processed' });
         }
 
         // Atualiza o status
-        console.log(`[WEBHOOK LOG] Atualizando o registro com ID: ${purchaseId} para 'Sucesso'.`);
+        console.log(`[WEBHOOK LOG] 🔄 Atualizando o registro com ID: ${purchaseId} de '${purchase.status}' para 'Sucesso'...`);
         await purchase.update({ status: 'Sucesso' });
-        console.log(`[WEBHOOK LOG] SUCESSO! Compra ID ${purchaseId} atualizada.`);
+        console.log(`[WEBHOOK LOG] ✅ SUCESSO! Compra ID ${purchaseId} atualizada para 'Sucesso'.`);
+        console.log(`[WEBHOOK LOG] 📧 Enviando notificação push...`);
 
         // Envia notificação push apenas uma vez
         sendPushNotification(
@@ -1118,11 +1153,14 @@ app.post('/ondapay-webhook', webhookLimiter, async (req, res) => {
           `O pagamento de ${purchase.nome} foi confirmado.`
         );
       } else {
-        console.log(`[WEBHOOK LOG] Status recebido foi '${status}'. Nenhuma ação necessária.`);
+        console.log(`[WEBHOOK LOG] ℹ️  Status recebido foi '${status}' (não é PAID_OUT). Nenhuma ação necessária.`);
       }
+
+      console.log('[WEBHOOK LOG] ✅ Respondendo com status 200 OK\n');
       res.status(200).send({ status: 'ok' });
     } catch (error) {
-      console.error("[WEBHOOK LOG] Erro crítico no processamento do webhook:", error.message);
+      console.error("[WEBHOOK LOG] ❌ Erro crítico no processamento do webhook:", error.message);
+      console.error("[WEBHOOK LOG] Stack trace:", error.stack);
       res.status(500).send('Erro interno ao processar webhook.');
     }
   });
@@ -1132,19 +1170,25 @@ app.post('/check-local-status', statusCheckLimiter, applyCsrf, async (req, res) 
     try {
       const { id } = req.body;
       if (!id) return res.status(400).json({ error: "ID da transação não fornecido." });
-  
+
       const purchase = await PurchaseHistory.findOne({ where: { transactionId: id } });
-  
+
       if (!purchase) {
-        console.log(`[STATUS CHECK] Nenhuma compra encontrada para o transactionId: ${id}. Retornando 'Gerado'.`);
+        console.log(`[STATUS CHECK] ⚠️  Nenhuma compra encontrada para o transactionId: ${id}. Retornando 'Gerado'.`);
         return res.json({ id: id, status: 'Gerado' });
       }
-      
-      console.log(`[STATUS CHECK] Status para transactionId ${id} é '${purchase.status}'. Enviando para o cliente.`);
+
+      // ENHANCED LOGGING: Log detalhado para debug
+      console.log(`[STATUS CHECK] 📊 Status para transactionId ${id}:`);
+      console.log(`  - Status atual: '${purchase.status}'`);
+      console.log(`  - Nome: ${purchase.nome}`);
+      console.log(`  - Data transação: ${purchase.dataTransacao}`);
+      console.log(`  - Valor: R$ ${(purchase.valorPago / 100).toFixed(2)}`);
+
       res.json({ id: purchase.transactionId, status: purchase.status });
-  
+
     } catch (error) {
-      console.error("[STATUS CHECK] Erro ao verificar status local:", error.message);
+      console.error("[STATUS CHECK] ❌ Erro ao verificar status local:", error.message);
       res.status(500).json({ error: "Erro ao verificar status localmente" });
     }
 });
@@ -1210,7 +1254,7 @@ app.get('/api/debug-payment/:transactionId', requireLogin, async (req, res) => {
 });
 
 // NOVO: Endpoint para simular webhook (APENAS PARA DESENVOLVIMENTO/TESTE)
-app.post('/api/simulate-webhook', requireLogin, async (req, res) => {
+app.post('/api/simulate-webhook', requireLogin, applyCsrf, async (req, res) => {
   try {
     const { transactionId } = req.body;
 
@@ -1218,15 +1262,25 @@ app.post('/api/simulate-webhook', requireLogin, async (req, res) => {
       return res.status(400).json({ error: 'transactionId é obrigatório' });
     }
 
+    console.log('\n🧪 [SIMULATE WEBHOOK] Simulando recebimento de webhook...');
+    console.log(`  - Transaction ID: ${transactionId}`);
+
     const purchase = await PurchaseHistory.findOne({
       where: { transactionId }
     });
 
     if (!purchase) {
+      console.log('[SIMULATE WEBHOOK] ❌ Compra não encontrada');
       return res.status(404).json({ error: 'Compra não encontrada' });
     }
 
+    console.log(`[SIMULATE WEBHOOK] 📋 Compra encontrada:`);
+    console.log(`  - Purchase ID: ${purchase.id}`);
+    console.log(`  - Nome: ${purchase.nome}`);
+    console.log(`  - Status atual: ${purchase.status}`);
+
     if (purchase.status === 'Sucesso') {
+      console.log('[SIMULATE WEBHOOK] ⚠️  Compra já está marcada como Sucesso');
       return res.json({
         message: 'Compra já está marcada como Sucesso',
         alreadyProcessed: true
@@ -1234,13 +1288,18 @@ app.post('/api/simulate-webhook', requireLogin, async (req, res) => {
     }
 
     // Atualiza para Sucesso
+    console.log('[SIMULATE WEBHOOK] 🔄 Atualizando status para Sucesso...');
     await purchase.update({ status: 'Sucesso' });
+    console.log('[SIMULATE WEBHOOK] ✅ Status atualizado com sucesso!');
 
     // Envia notificação
+    console.log('[SIMULATE WEBHOOK] 📧 Enviando notificação push...');
     sendPushNotification(
       'Venda Paga com Sucesso!',
       `O pagamento de ${purchase.nome} foi confirmado (SIMULADO).`
     );
+
+    console.log('[SIMULATE WEBHOOK] ✅ Simulação completa!\n');
 
     res.json({
       success: true,
@@ -1254,7 +1313,92 @@ app.post('/api/simulate-webhook', requireLogin, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[SIMULATE WEBHOOK] Erro:', error);
+    console.error('[SIMULATE WEBHOOK] ❌ Erro:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// NOVO: Endpoint de diagnóstico completo do fluxo de pagamento
+app.get('/api/payment-flow-status', requireLogin, async (req, res) => {
+  try {
+    const { transactionId, purchaseId } = req.query;
+
+    if (!transactionId && !purchaseId) {
+      return res.status(400).json({
+        error: 'Forneça transactionId ou purchaseId como query parameter'
+      });
+    }
+
+    let purchase;
+    if (transactionId) {
+      purchase = await PurchaseHistory.findOne({ where: { transactionId } });
+    } else {
+      purchase = await PurchaseHistory.findByPk(purchaseId);
+    }
+
+    if (!purchase) {
+      return res.json({
+        found: false,
+        message: 'Compra não encontrada',
+        searchedBy: transactionId ? 'transactionId' : 'purchaseId',
+        searchValue: transactionId || purchaseId
+      });
+    }
+
+    // Análise do fluxo
+    const analysis = {
+      purchase: {
+        id: purchase.id,
+        transactionId: purchase.transactionId,
+        nome: purchase.nome,
+        telefone: purchase.telefone,
+        status: purchase.status,
+        valorPago: `R$ ${(purchase.valorPago / 100).toFixed(2)}`,
+        dataTransacao: purchase.dataTransacao
+      },
+      flow: {
+        step1_qrCodeGenerated: !!purchase.transactionId,
+        step2_clientPolling: purchase.status === 'Gerado' ? 'Em andamento (esperando pagamento)' : 'Concluído',
+        step3_webhookReceived: purchase.status === 'Sucesso' ? 'Sim' : 'Aguardando',
+        step4_statusUpdated: purchase.status === 'Sucesso',
+        step5_thankYouPage: purchase.status === 'Sucesso' ? 'Deveria ter sido exibida' : 'Aguardando pagamento'
+      },
+      webhook: {
+        webhookUrl: process.env.WEBHOOK_URL || 'NÃO CONFIGURADO',
+        webhookSecretConfigured: !!process.env.ONDAPAY_WEBHOOK_SECRET,
+        isLocalhost: (process.env.WEBHOOK_URL || '').includes('localhost'),
+        warning: (process.env.WEBHOOK_URL || '').includes('localhost')
+          ? '⚠️ WEBHOOK_URL aponta para localhost. OndaPay NÃO consegue enviar webhooks para localhost!'
+          : null
+      },
+      nextSteps: purchase.status === 'Gerado' ? [
+        '1. Cliente deve efetuar o pagamento via Pix',
+        '2. OndaPay enviará webhook para o servidor quando pagamento for confirmado',
+        '3. Servidor atualizará status para "Sucesso"',
+        '4. Cliente polling detectará mudança e mostrará página de agradecimento',
+        '',
+        '⚙️ Para testar sem pagamento real, use o endpoint:',
+        `POST /api/simulate-webhook com body: { "transactionId": "${purchase.transactionId}" }`
+      ] : [
+        `✅ Pagamento confirmado!`,
+        `Status: ${purchase.status}`,
+        `Data: ${purchase.dataTransacao}`
+      ],
+      troubleshooting: {
+        statusIsGerado: purchase.status === 'Gerado',
+        possibleIssues: purchase.status === 'Gerado' ? [
+          '🔍 Webhook não está chegando - verifique URL e conectividade',
+          '🔐 HMAC signature pode estar falhando - verifique ONDAPAY_WEBHOOK_SECRET',
+          '📡 Servidor pode estar inacessível para OndaPay',
+          '⏱️ Pagamento pode ainda não ter sido efetuado'
+        ] : []
+      }
+    };
+
+    res.json(analysis);
+
+  } catch (error) {
+    console.error('[PAYMENT FLOW STATUS] Erro:', error);
     res.status(500).json({ error: error.message });
   }
 });
