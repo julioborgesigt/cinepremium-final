@@ -383,12 +383,11 @@ async function sendPushNotification(title, body) {
 // MODIFICADO: O middleware agora trata requisições de API (fetch) de forma diferente
 // MODIFICADO: A verificação de API agora é baseada na URL
 function requireLogin(req, res, next) {
-  // CORREÇÃO: Só loga dados sensíveis em desenvolvimento
+  // CORREÇÃO: Não loga dados sensíveis (Session IDs, cookies)
   if (process.env.NODE_ENV !== 'production') {
     console.log('[REQUIRE_LOGIN] Path:', req.path);
-    console.log('[REQUIRE_LOGIN] Session ID:', req.sessionID);
+    console.log('[REQUIRE_LOGIN] Has session:', !!req.sessionID);
     console.log('[REQUIRE_LOGIN] Session loggedin:', req.session.loggedin);
-    console.log('[REQUIRE_LOGIN] Cookies:', req.cookies);
   }
 
   if (req.session.loggedin) {
@@ -419,6 +418,24 @@ const loginLimiter = rateLimit({
   max: 5, // 5 tentativas de login
   message: 'Muitas tentativas de login. Tente novamente em 15 minutos.',
   skipSuccessfulRequests: true // Não conta logins bem-sucedidos
+});
+
+// NOVO: Rate limiting para webhook (proteção contra replay attacks e DoS)
+const webhookLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minuto
+  max: 30, // 30 webhooks por minuto (OndaPay não envia mais que isso)
+  message: 'Muitos webhooks recebidos. Tente novamente em 1 minuto.',
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// NOVO: Rate limiting para verificação de status (proteção contra DoS)
+const statusCheckLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minuto
+  max: 60, // 60 verificações por minuto (polling de 5s = 12/min, margem de segurança)
+  message: 'Muitas verificações de status. Aguarde um momento.',
+  standardHeaders: true,
+  legacyHeaders: false
 });
 
 // CORREÇÃO CRÍTICA #2 + #5: Rota de autenticação com bcrypt e CSRF
@@ -456,9 +473,9 @@ app.post('/auth', loginLimiter, applyCsrf, async (req, res) => {
             return res.status(500).json({ error: 'Erro ao salvar sessão' });
           }
           console.log('[AUTH] ✅ Login bem-sucedido');
-          // CORREÇÃO: Não loga Session ID em produção
+          // CORREÇÃO: Não loga dados sensíveis (Session IDs)
           if (process.env.NODE_ENV !== 'production') {
-            console.log('[AUTH] Novo Session ID:', req.sessionID);
+            console.log('[AUTH] Session created:', !!req.sessionID);
             console.log('[AUTH] Session loggedin:', req.session.loggedin);
           }
           // Retorna JSON para requisições AJAX
@@ -880,7 +897,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
 
 // CORRIGIDO: Webhook com verificação de assinatura HMAC implementada
 // CORREÇÃO CRÍTICA #1: Webhook com verificação HMAC obrigatória
-app.post('/ondapay-webhook', async (req, res) => {
+app.post('/ondapay-webhook', webhookLimiter, async (req, res) => {
     console.log('--- [WEBHOOK LOG] --- Webhook Recebido');
 
     try {
@@ -961,7 +978,7 @@ app.post('/ondapay-webhook', async (req, res) => {
   });
 
 // Endpoint para o cliente verificar o status do pagamento com CSRF
-app.post('/check-local-status', applyCsrf, async (req, res) => {
+app.post('/check-local-status', statusCheckLimiter, applyCsrf, async (req, res) => {
     try {
       const { id } = req.body;
       if (!id) return res.status(400).json({ error: "ID da transação não fornecido." });
@@ -1110,7 +1127,9 @@ app.post('/api/devices', requireLogin, applyCsrf, async (req, res) => {
     });
 
     if (created) {
-      console.log('Novo dispositivo registrado para notificações:', device.token);
+      // CORREÇÃO: Não loga token completo (dado sensível)
+      const maskedToken = device.token.substring(0, 8) + '...' + device.token.substring(device.token.length - 4);
+      console.log('Novo dispositivo registrado para notificações:', maskedToken);
       res.status(201).json({ message: 'Dispositivo registrado com sucesso.' });
     } else {
       res.status(200).json({ message: 'Dispositivo já estava registrado.' });
