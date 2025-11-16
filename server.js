@@ -1348,9 +1348,21 @@ app.delete('/api/products/:id', requireLogin, applyCsrf, async (req, res) => {
 // MODIFICADO: Adicionado 'requireLogin' para proteger a rota
 app.get('/api/purchase-history', requireLogin, async (req, res) => {
     try {
-      const { nome, telefone, mes, ano } = req.query;
+      const {
+        nome,
+        telefone,
+        mes,
+        ano,
+        status,
+        transactionId,
+        dataInicio,
+        dataFim,
+        page = 1,
+        limit = 10
+      } = req.query;
+
       let where = {};
-  
+
       if (nome) {
         // CORREÇÃO CRÍTICA #7: Sanitizar caracteres especiais do LIKE para prevenir SQL injection
         const sanitizedNome = nome.replace(/[%_]/g, '\\$&');
@@ -1359,14 +1371,44 @@ app.get('/api/purchase-history', requireLogin, async (req, res) => {
       if (telefone) {
         where.telefone = telefone;
       }
-      if (mes && ano) {
+      if (status) {
+        where.status = status;
+      }
+      if (transactionId) {
+        where.transactionId = { [Op.like]: `%${transactionId}%` };
+      }
+
+      // Filtro de data: prioriza range personalizado, senão usa mês/ano
+      if (dataInicio && dataFim) {
+        const startDate = new Date(dataInicio);
+        const endDate = new Date(dataFim);
+        endDate.setHours(23, 59, 59, 999); // Fim do dia
+        where.dataTransacao = { [Op.between]: [startDate, endDate] };
+      } else if (mes && ano) {
         const startDate = new Date(ano, mes - 1, 1);
         const endDate = new Date(ano, mes, 0, 23, 59, 59);
         where.dataTransacao = { [Op.between]: [startDate, endDate] };
       }
-  
-      const history = await PurchaseHistory.findAll({ where, order: [['dataTransacao', 'DESC']] });
-      res.json(history);
+
+      // Paginação
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      const { count, rows: history } = await PurchaseHistory.findAndCountAll({
+        where,
+        order: [['dataTransacao', 'DESC']],
+        limit: parseInt(limit),
+        offset: offset
+      });
+
+      res.json({
+        data: history,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / parseInt(limit))
+        }
+      });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Erro ao buscar histórico.' });
@@ -1480,6 +1522,114 @@ app.post('/api/devices', requireLogin, applyCsrf, async (req, res) => {
   } catch (error) {
     console.error('Erro ao registrar dispositivo:', error);
     res.status(500).json({ error: 'Erro interno ao salvar o token.' });
+  }
+});
+
+// NOVO: Rota para atualizar status de uma transação manualmente
+app.post('/api/update-transaction-status', requireLogin, applyCsrf, async (req, res) => {
+  const { transactionId } = req.body;
+
+  if (!transactionId) {
+    return res.status(400).json({ error: 'Transaction ID não fornecido.' });
+  }
+
+  try {
+    // Busca a transação no banco de dados
+    const purchase = await PurchaseHistory.findOne({
+      where: { transactionId: transactionId }
+    });
+
+    if (!purchase) {
+      return res.status(404).json({ error: 'Transação não encontrada.' });
+    }
+
+    // Só atualiza se o status atual for 'Gerado'
+    if (purchase.status !== 'Gerado') {
+      return res.status(400).json({
+        error: `Transação já está com status: ${purchase.status}`,
+        currentStatus: purchase.status
+      });
+    }
+
+    // Obtém token da OndaPay
+    let token = await getOndaPayToken();
+
+    try {
+      // Consulta status na API da OndaPay
+      const response = await axios.get(
+        `${ONDAPAY_API_URL}/api/v1/deposit/pix/${transactionId}`,
+        { headers: { "Authorization": `Bearer ${token}` } }
+      );
+
+      const paymentData = response.data;
+      let newStatus = 'Gerado';
+
+      // Mapeia o status da OndaPay para nosso status
+      if (paymentData.status === 'approved' || paymentData.status === 'paid') {
+        newStatus = 'Sucesso';
+      } else if (paymentData.status === 'rejected' || paymentData.status === 'failed') {
+        newStatus = 'Falhou';
+      } else if (paymentData.status === 'expired') {
+        newStatus = 'Expirado';
+      }
+
+      // Atualiza o status no banco
+      await purchase.update({ status: newStatus });
+
+      console.log(`✅ Status da transação ${transactionId} atualizado para: ${newStatus}`);
+
+      res.json({
+        success: true,
+        message: `Status atualizado para: ${newStatus}`,
+        transactionId: transactionId,
+        oldStatus: 'Gerado',
+        newStatus: newStatus
+      });
+
+    } catch (error) {
+      // Se for erro 401, tenta renovar token
+      if (error.response && error.response.status === 401) {
+        console.log("Token da OndaPay expirado. Renovando...");
+        token = await getOndaPayToken(true);
+
+        const retryResponse = await axios.get(
+          `${ONDAPAY_API_URL}/api/v1/deposit/pix/${transactionId}`,
+          { headers: { "Authorization": `Bearer ${token}` } }
+        );
+
+        const paymentData = retryResponse.data;
+        let newStatus = 'Gerado';
+
+        if (paymentData.status === 'approved' || paymentData.status === 'paid') {
+          newStatus = 'Sucesso';
+        } else if (paymentData.status === 'rejected' || paymentData.status === 'failed') {
+          newStatus = 'Falhou';
+        } else if (paymentData.status === 'expired') {
+          newStatus = 'Expirado';
+        }
+
+        await purchase.update({ status: newStatus });
+
+        console.log(`✅ Status da transação ${transactionId} atualizado para: ${newStatus}`);
+
+        res.json({
+          success: true,
+          message: `Status atualizado para: ${newStatus}`,
+          transactionId: transactionId,
+          oldStatus: 'Gerado',
+          newStatus: newStatus
+        });
+      } else {
+        throw error;
+      }
+    }
+
+  } catch (error) {
+    console.error('Erro ao atualizar status da transação:', error);
+    res.status(500).json({
+      error: 'Erro ao consultar status na OndaPay',
+      details: error.message
+    });
   }
 });
 
