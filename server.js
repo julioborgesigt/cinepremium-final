@@ -123,6 +123,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: [
         "'self'",
+        "'unsafe-inline'", // TODO: Remover após migrar scripts inline para arquivos externos
         "https://www.gstatic.com",
         "https://apis.google.com"
       ],
@@ -417,8 +418,9 @@ const loginLimiter = rateLimit({
   skipSuccessfulRequests: true // Não conta logins bem-sucedidos
 });
 
-// CORREÇÃO CRÍTICA #2 e #5: Rota de autenticação com bcrypt e CSRF
-app.post('/auth', loginLimiter, applyCsrf, async (req, res) => {
+// CORREÇÃO CRÍTICA #2: Rota de autenticação com bcrypt
+// TODO: Adicionar applyCsrf após frontend implementar CSRF tokens
+app.post('/auth', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
 
   console.log('[AUTH] Tentativa de login para usuário:', username);
@@ -721,8 +723,9 @@ app.get('/api/diagnostics', requireLogin, async (req, res) => {
   }
 });
 
-// CORREÇÃO CRÍTICA #5 e #6: Endpoint com CSRF e sanitização de inputs
-app.post('/gerarqrcode', applyCsrf, async (req, res) => {
+// CORREÇÃO CRÍTICA #6: Endpoint com sanitização de inputs
+// TODO: Adicionar applyCsrf após frontend implementar CSRF tokens
+app.post('/gerarqrcode', async (req, res) => {
   try {
     const { value, telefone, cpf, productTitle, productDescription } = req.body;
 
@@ -954,8 +957,9 @@ app.post('/ondapay-webhook', async (req, res) => {
     }
   });
 
-// CORREÇÃO CRÍTICA #5: Endpoint com CSRF protection
-app.post('/check-local-status', applyCsrf, async (req, res) => {
+// Endpoint para o cliente verificar o status do pagamento
+// TODO: Adicionar applyCsrf após frontend implementar CSRF tokens
+app.post('/check-local-status', async (req, res) => {
     try {
       const { id } = req.body;
       if (!id) return res.status(400).json({ error: "ID da transação não fornecido." });
@@ -989,8 +993,9 @@ app.get('/api/products', async (req, res) => {
 
 // --- ENDPOINTS DE ADMINISTRAÇÃO (Protegidos) ---
 
-// CORREÇÃO CRÍTICA #5 e #6: CSRF + Sanitização
-app.post('/api/products', requireLogin, applyCsrf, async (req, res) => {
+// CORREÇÃO CRÍTICA #6: Sanitização de inputs
+// TODO: Adicionar applyCsrf após frontend implementar CSRF tokens
+app.post('/api/products', requireLogin, async (req, res) => {
     try {
       const { price, image } = req.body;
 
@@ -1027,8 +1032,9 @@ app.post('/api/products', requireLogin, applyCsrf, async (req, res) => {
     }
 });
   
-// CORREÇÃO CRÍTICA #5: Adicionado CSRF protection
-app.put('/api/products/reorder', requireLogin, applyCsrf, async (req, res) => {
+// Rota para reordenar produtos
+// TODO: Adicionar applyCsrf após frontend implementar CSRF tokens
+app.put('/api/products/reorder', requireLogin, async (req, res) => {
     try {
       const { order } = req.body;
       if (!order || !Array.isArray(order)) {
@@ -1044,8 +1050,9 @@ app.put('/api/products/reorder', requireLogin, applyCsrf, async (req, res) => {
     }
 });
 
-// CORREÇÃO CRÍTICA #5: Adicionado CSRF protection
-app.delete('/api/products/:id', requireLogin, applyCsrf, async (req, res) => {
+// Rota para deletar produto
+// TODO: Adicionar applyCsrf após frontend implementar CSRF tokens
+app.delete('/api/products/:id', requireLogin, async (req, res) => {
     try {
       const { id } = req.params;
       const rowsDeleted = await Product.destroy({ where: { id } });
