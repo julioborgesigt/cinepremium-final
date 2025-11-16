@@ -951,7 +951,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
     try {
       // Cria registro de compra dentro da transação
       const purchaseRecord = await PurchaseHistory.create(
-        { nome, telefone, status: 'Gerado' },
+        { nome, telefone, status: 'Gerado', valorPago: value },
         { transaction: t }
       );
 
@@ -1371,6 +1371,86 @@ app.get('/api/purchase-history', requireLogin, async (req, res) => {
       console.error(error);
       res.status(500).json({ error: 'Erro ao buscar histórico.' });
     }
+});
+
+// NOVO: Rota para obter estatísticas de vendas
+app.get('/api/statistics', requireLogin, async (req, res) => {
+  try {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    // Início e fim do mês atual
+    const startOfMonth = new Date(currentYear, currentMonth, 1);
+    const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
+
+    // Início e fim do mês anterior
+    const startOfLastMonth = new Date(currentYear, currentMonth - 1, 1);
+    const endOfLastMonth = new Date(currentYear, currentMonth, 0, 23, 59, 59);
+
+    // Vendas bem-sucedidas do mês atual
+    const currentMonthSales = await PurchaseHistory.findAll({
+      where: {
+        status: 'Sucesso',
+        dataTransacao: { [Op.between]: [startOfMonth, endOfMonth] }
+      }
+    });
+
+    // Vendas bem-sucedidas do mês anterior
+    const lastMonthSales = await PurchaseHistory.findAll({
+      where: {
+        status: 'Sucesso',
+        dataTransacao: { [Op.between]: [startOfLastMonth, endOfLastMonth] }
+      }
+    });
+
+    // Calcula totais
+    const currentMonthTotal = currentMonthSales.reduce((sum, sale) => sum + (sale.valorPago || 0), 0);
+    const lastMonthTotal = lastMonthSales.reduce((sum, sale) => sum + (sale.valorPago || 0), 0);
+
+    // Total de vendas (todos os tempos)
+    const allSuccessfulSales = await PurchaseHistory.findAll({
+      where: { status: 'Sucesso' }
+    });
+    const totalRevenue = allSuccessfulSales.reduce((sum, sale) => sum + (sale.valorPago || 0), 0);
+
+    // Vendas de hoje
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    const todaySales = await PurchaseHistory.count({
+      where: {
+        status: 'Sucesso',
+        dataTransacao: { [Op.between]: [startOfToday, endOfToday] }
+      }
+    });
+
+    // Total de transações pendentes
+    const pendingCount = await PurchaseHistory.count({
+      where: { status: 'Gerado' }
+    });
+
+    res.json({
+      currentMonth: {
+        sales: currentMonthSales.length,
+        revenue: currentMonthTotal
+      },
+      lastMonth: {
+        sales: lastMonthSales.length,
+        revenue: lastMonthTotal
+      },
+      allTime: {
+        sales: allSuccessfulSales.length,
+        revenue: totalRevenue
+      },
+      today: {
+        sales: todaySales
+      },
+      pending: pendingCount
+    });
+  } catch (error) {
+    console.error('Erro ao buscar estatísticas:', error);
+    res.status(500).json({ error: 'Erro ao buscar estatísticas.' });
+  }
 });
 
 
