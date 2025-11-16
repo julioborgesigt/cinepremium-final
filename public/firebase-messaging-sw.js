@@ -35,3 +35,17 @@ messaging.onBackgroundMessage((payload) => {
 
 });
 
+// NOVO: Handler para ativar Service Worker imediatamente quando solicitado
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    console.log('[Service Worker] SKIP_WAITING recebido, ativando imediatamente...');
+    self.skipWaiting();
+  }
+});
+
+// NOVO: Assume controle imediatamente ao ativar
+self.addEventListener('activate', (event) => {
+  console.log('[Service Worker] Ativado');
+  event.waitUntil(self.clients.claim());
+});
+
