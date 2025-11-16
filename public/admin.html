@@ -683,14 +683,32 @@
     // NOVO: Código para inicializar o Firebase e gerenciar notificações
 
     
-       // NOVO: Script para registrar o Service Worker
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/firebase-messaging-sw.js')
-        .then(function(registration) {
-          console.log('Service Worker registrado com sucesso:', registration);
-        }).catch(function(error) {
-          console.log('Falha ao registrar o Service Worker:', error);
-        });
+       // CORREÇÃO: Service Worker registration global para passar ao Firebase
+    let swRegistration = null;
+
+    // NOVO: Script para registrar o Service Worker
+    // CORREÇÃO: Espera o Service Worker estar pronto antes de usar
+    async function registerServiceWorker() {
+      if (!('serviceWorker' in navigator)) {
+        console.warn('Service Worker não suportado neste navegador');
+        return null;
+      }
+
+      try {
+        // Registra o Service Worker
+        const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        console.log('Service Worker registrado:', registration);
+
+        // CRÍTICO: Aguarda Service Worker estar pronto
+        await navigator.serviceWorker.ready;
+        console.log('Service Worker está ativo e pronto');
+
+        return registration;
+
+      } catch (error) {
+        console.error('Falha ao registrar Service Worker:', error);
+        return null;
+      }
     }
 
     // CORRIGIDO: Busca configuração do Firebase do backend ao invés de hardcoded
@@ -698,6 +716,13 @@
 
     async function initializeFirebase() {
       try {
+        // CORREÇÃO: Registra e aguarda Service Worker ANTES de inicializar Firebase
+        swRegistration = await registerServiceWorker();
+
+        if (!swRegistration) {
+          throw new Error('Service Worker não pôde ser registrado');
+        }
+
         const response = await fetch('/api/firebase-config');
         if (!response.ok) {
           throw new Error('Erro ao buscar configuração do Firebase');
@@ -742,6 +767,12 @@
         return;
       }
 
+      // CORREÇÃO: Valida que Service Worker está pronto
+      if (!swRegistration) {
+        showToast('Service Worker não está pronto. Recarregue a página.', 'error');
+        return;
+      }
+
       if (typeof console !== 'undefined' && console.log) {
         console.log('Solicitando permissão para notificações...');
       }
@@ -752,7 +783,11 @@
             console.log('Permissão para notificação concedida.');
           }
 
-          messaging.getToken({ vapidKey: vapidKey }).then((currentToken) => {
+          // CORREÇÃO: Passa Service Worker registration para getToken
+          messaging.getToken({
+            vapidKey: vapidKey,
+            serviceWorkerRegistration: swRegistration
+          }).then((currentToken) => {
             if (currentToken) {
               if (typeof console !== 'undefined' && console.log) {
                 console.log('[Firebase JS] Token obtido:', currentToken);
@@ -769,7 +804,7 @@
             if (typeof console !== 'undefined' && console.error) {
               console.error('[Firebase JS] Erro ao obter token:', err);
             }
-            showToast('Erro ao configurar notificações', 'error');
+            showToast('Erro ao configurar notificações: ' + err.message, 'error');
           });
 
         } else {
