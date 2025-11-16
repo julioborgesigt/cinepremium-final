@@ -36,7 +36,7 @@
             Usuário ou senha incorretos. Tente novamente.
         </div>
 
-        <form action="/auth" method="POST">
+        <form>
             <div>
                 <label for="username">Usuário:</label>
                 <input type="text" id="username" name="username" required>
@@ -50,6 +50,27 @@
     </div>
 
     <script>
+      // CSRF Token cache
+      let csrfToken = null;
+
+      // Função para obter CSRF token
+      async function getCsrfToken() {
+        if (!csrfToken) {
+          try {
+            const response = await fetch('/api/csrf-token');
+            if (!response.ok) {
+              throw new Error('Erro ao obter CSRF token');
+            }
+            const data = await response.json();
+            csrfToken = data.csrfToken;
+          } catch (error) {
+            console.error('Erro ao obter CSRF token:', error);
+            throw error;
+          }
+        }
+        return csrfToken;
+      }
+
       window.onload = function() {
         // Pega os parâmetros da URL
         const params = new URLSearchParams(window.location.search);
@@ -61,20 +82,76 @@
           errorMessageDiv.style.display = 'block';
         }
 
-        // NOVO: Adiciona loading state ao formulário
+        // MODIFICADO: Intercepta o submit do formulário para usar fetch com CSRF
         const form = document.querySelector('form');
         const submitButton = form.querySelector('button[type="submit"]');
         const originalText = submitButton.textContent;
 
-        form.addEventListener('submit', function() {
+        form.addEventListener('submit', async function(e) {
+          e.preventDefault(); // Previne submit tradicional
+
           submitButton.disabled = true;
           submitButton.textContent = 'Entrando...';
 
-          // Reabilita após timeout (caso de erro de rede)
-          setTimeout(function() {
+          try {
+            // Obtém CSRF token
+            const token = await getCsrfToken();
+
+            // Coleta dados do formulário
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            // Faz a requisição com CSRF token
+            const response = await fetch('/auth', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'CSRF-Token': token
+              },
+              body: JSON.stringify({ username, password })
+            });
+
+            if (response.ok) {
+              // Login bem-sucedido, redireciona para admin
+              window.location.href = '/admin';
+            } else {
+              // Se for 403, token CSRF inválido - recarrega e tenta novamente
+              if (response.status === 403) {
+                csrfToken = null; // Limpa token antigo
+                const newToken = await getCsrfToken();
+
+                // Tenta novamente com novo token
+                const retryResponse = await fetch('/auth', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'CSRF-Token': newToken
+                  },
+                  body: JSON.stringify({ username, password })
+                });
+
+                if (retryResponse.ok) {
+                  window.location.href = '/admin';
+                } else {
+                  // Credenciais inválidas
+                  const errorMessageDiv = document.getElementById('errorMessage');
+                  errorMessageDiv.style.display = 'block';
+                }
+              } else {
+                // Outro erro (401, etc)
+                const errorMessageDiv = document.getElementById('errorMessage');
+                errorMessageDiv.style.display = 'block';
+              }
+            }
+          } catch (error) {
+            console.error('Erro no login:', error);
+            const errorMessageDiv = document.getElementById('errorMessage');
+            errorMessageDiv.textContent = 'Erro ao conectar com o servidor. Tente novamente.';
+            errorMessageDiv.style.display = 'block';
+          } finally {
             submitButton.disabled = false;
             submitButton.textContent = originalText;
-          }, 5000);
+          }
         });
       };
     </script>

@@ -356,7 +356,28 @@
     let transactionId = null;
     let pollingInterval = null;
     let qrCodeExpirationTimestamp = null; // NOVO: Variável para guardar o tempo de expiração
-    
+
+    // CSRF Token cache
+    let csrfToken = null;
+
+    // Função para obter CSRF token
+    async function getCsrfToken() {
+      if (!csrfToken) {
+        try {
+          const response = await fetch('/api/csrf-token');
+          if (!response.ok) {
+            throw new Error('Erro ao obter CSRF token');
+          }
+          const data = await response.json();
+          csrfToken = data.csrfToken;
+        } catch (error) {
+          console.error('Erro ao obter CSRF token:', error);
+          throw error;
+        }
+      }
+      return csrfToken;
+    }
+
     // NOVO: Função completa para validar CPF
     function isValidCPF(cpf) {
       if (typeof cpf !== 'string') return false;
@@ -523,7 +544,7 @@
     });
     // MODIFICADO: A função agora verifica o tempo antes de fazer a requisição
     // Verifica o status do pagamento periodicamente
-    function checkPaymentStatus() {
+    async function checkPaymentStatus() {
        // NOVO: Bloco que verifica se o QR Code expirou
       if (qrCodeExpirationTimestamp && Date.now() > qrCodeExpirationTimestamp) {
         document.getElementById('paymentStatus').textContent = 'Seu QR Code expirou. Por favor, volte e gere um novo.';
@@ -531,62 +552,93 @@
         return; // Sai da função
       }
       if (!transactionId) return;
-      fetch('/check-local-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: transactionId })
-      })
-      .then(response => {
-        if (!response.ok) throw new Error('Erro ao verificar status');
-        return response.json();
-      })
-      .then(data => {
-         if (data.status && data.status.toLowerCase() === 'sucesso') {
-          // CORRIGIDO: Cria elementos DOM ao invés de innerHTML para prevenir XSS
-          const mainContainer = document.getElementById('mainContainer');
-          mainContainer.innerHTML = ''; // Limpa o conteúdo
 
-          const thankYouContainer = document.createElement('div');
-          thankYouContainer.className = 'thank-you-container';
+      try {
+        // Obtém CSRF token
+        const token = await getCsrfToken();
 
-          const thankYouCard = document.createElement('div');
-          thankYouCard.className = 'thank-you-card';
+        const response = await fetch('/check-local-status', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'CSRF-Token': token
+          },
+          body: JSON.stringify({ id: transactionId })
+        });
 
-          const title = document.createElement('h1');
-          title.textContent = 'Obrigado pela sua compra!';
+        // Se CSRF inválido, recarrega token e tenta novamente
+        if (response.status === 403) {
+          csrfToken = null;
+          const newToken = await getCsrfToken();
+          const retryResponse = await fetch('/check-local-status', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'CSRF-Token': newToken
+            },
+            body: JSON.stringify({ id: transactionId })
+          });
 
-          const confirmText = document.createElement('p');
-          confirmText.textContent = 'Sua transação foi confirmada.';
-
-          const transactionText = document.createElement('p');
-          transactionText.textContent = 'ID da Transação: ';
-
-          const transactionSpan = document.createElement('span');
-          transactionSpan.className = 'transaction-id';
-          transactionSpan.textContent = transactionId;
-          transactionText.appendChild(transactionSpan);
-
-          const backButton = document.createElement('button');
-          backButton.className = 'button';
-          backButton.textContent = 'Voltar à Página Inicial';
-          backButton.addEventListener('click', () => { window.location.href = '/'; });
-
-          thankYouCard.appendChild(title);
-          thankYouCard.appendChild(confirmText);
-          thankYouCard.appendChild(transactionText);
-          thankYouCard.appendChild(backButton);
-
-          thankYouContainer.appendChild(thankYouCard);
-          mainContainer.appendChild(thankYouContainer);
-
-          clearInterval(pollingInterval);
+          if (!retryResponse.ok) {
+            throw new Error('Erro ao verificar status');
+          }
+          const data = await retryResponse.json();
+          processPaymentStatus(data);
+        } else if (!response.ok) {
+          throw new Error('Erro ao verificar status');
         } else {
-          document.getElementById('paymentStatus').textContent = 'Aguardando confirmação do pagamento...';
+          const data = await response.json();
+          processPaymentStatus(data);
         }
-      })
-      .catch(error => {
+      } catch (error) {
         console.error('Erro ao verificar status:', error);
-      });
+      }
+    }
+
+    // NOVO: Função auxiliar para processar status do pagamento
+    function processPaymentStatus(data) {
+      if (data.status && data.status.toLowerCase() === 'sucesso') {
+        // CORRIGIDO: Cria elementos DOM ao invés de innerHTML para prevenir XSS
+        const mainContainer = document.getElementById('mainContainer');
+        mainContainer.innerHTML = ''; // Limpa o conteúdo
+
+        const thankYouContainer = document.createElement('div');
+        thankYouContainer.className = 'thank-you-container';
+
+        const thankYouCard = document.createElement('div');
+        thankYouCard.className = 'thank-you-card';
+
+        const title = document.createElement('h1');
+        title.textContent = 'Obrigado pela sua compra!';
+
+        const confirmText = document.createElement('p');
+        confirmText.textContent = 'Sua transação foi confirmada.';
+
+        const transactionText = document.createElement('p');
+        transactionText.textContent = 'ID da Transação: ';
+
+        const transactionSpan = document.createElement('span');
+        transactionSpan.className = 'transaction-id';
+        transactionSpan.textContent = transactionId;
+        transactionText.appendChild(transactionSpan);
+
+        const backButton = document.createElement('button');
+        backButton.className = 'button';
+        backButton.textContent = 'Voltar à Página Inicial';
+        backButton.addEventListener('click', () => { window.location.href = '/'; });
+
+        thankYouCard.appendChild(title);
+        thankYouCard.appendChild(confirmText);
+        thankYouCard.appendChild(transactionText);
+        thankYouCard.appendChild(backButton);
+
+        thankYouContainer.appendChild(thankYouCard);
+        mainContainer.appendChild(thankYouContainer);
+
+        clearInterval(pollingInterval);
+      } else {
+        document.getElementById('paymentStatus').textContent = 'Aguardando confirmação do pagamento...';
+      }
     }
     
     // Gera o QR Code de pagamento, enviando também os dados do cliente
@@ -594,7 +646,7 @@
 
 document.getElementById('generateBtn').addEventListener('click', async function() {
   if (!selectedProduct) return;
-  
+
   const nome = document.getElementById('nome').value.trim();
   const telefone = document.getElementById('telefone').value.trim();
   const cpf = document.getElementById('cpf').value.trim();
@@ -608,11 +660,17 @@ document.getElementById('generateBtn').addEventListener('click', async function(
   console.log('[Página de Venda] Botão clicado. Tentando gerar QR Code...');
 
   try {
+    // Obtém CSRF token
+    const token = await getCsrfToken();
+
     const response = await fetch('/gerarqrcode', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        value: selectedProduct.price, 
+      headers: {
+        'Content-Type': 'application/json',
+        'CSRF-Token': token
+      },
+      body: JSON.stringify({
+        value: selectedProduct.price,
         nome, telefone, cpf, email,
         productTitle: selectedProduct.title,
         productDescription: selectedProduct.description || ''
@@ -622,6 +680,36 @@ document.getElementById('generateBtn').addEventListener('click', async function(
     // LOG 2: Mostra o status da resposta do servidor
     console.log('[Página de Venda] Resposta inicial do servidor recebida. Status:', response.status, response.statusText);
 
+    // Se CSRF inválido, recarrega token e tenta novamente
+    if (response.status === 403) {
+      csrfToken = null;
+      const newToken = await getCsrfToken();
+      const retryResponse = await fetch('/gerarqrcode', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'CSRF-Token': newToken
+        },
+        body: JSON.stringify({
+          value: selectedProduct.price,
+          nome, telefone, cpf, email,
+          productTitle: selectedProduct.title,
+          productDescription: selectedProduct.description || ''
+        })
+      });
+
+      if (!retryResponse.ok) {
+        const errorData = await retryResponse.json().catch(() => retryResponse.text());
+        console.error('[Página de Venda] O servidor retornou um erro:', errorData);
+        const errorMessage = errorData.error || (errorData.msg && Object.values(errorData.msg)[0]) || 'Ocorreu um erro desconhecido.';
+        throw new Error(errorMessage);
+      }
+
+      const data = await retryResponse.json();
+      processQRCodeResponse(data);
+      return;
+    }
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => response.text());
       // LOG 3: Mostra o erro exato vindo do servidor
@@ -629,43 +717,9 @@ document.getElementById('generateBtn').addEventListener('click', async function(
       const errorMessage = errorData.error || (errorData.msg && Object.values(errorData.msg)[0]) || 'Ocorreu um erro desconhecido.';
       throw new Error(errorMessage);
     }
-    
+
     const data = await response.json();
-    
-    // LOG 4: Confirma o sucesso e o disparo da notificação
-    console.log('[Página de Venda] QR Code recebido do servidor. A notificação para o admin foi disparada neste momento.');
-
-    // O resto do seu código de sucesso...
-    document.getElementById('qrDisplay').style.display = 'block';
-    document.getElementById('nome').style.display = 'none';
-    document.getElementById('telefone').style.display = 'none';
-    document.getElementById('cpf').style.display = 'none';
-    document.getElementById('email').style.display = 'none';
-    document.getElementById('generateBtn').style.display = 'none';
-    
-    // CORRIGIDO: Valida e cria imagem com createElement
-    const qrCodeImgContainer = document.getElementById('qrCodeImg');
-    qrCodeImgContainer.innerHTML = ''; // Limpa conteúdo anterior
-
-    // Validação básica do base64
-    if (data.qr_code_base64 && typeof data.qr_code_base64 === 'string') {
-      const qrImg = document.createElement('img');
-      qrImg.alt = 'QR Code de Pagamento';
-      qrImg.style.width = '200px';
-      qrImg.style.height = '200px';
-      qrImg.onerror = function() {
-        showErrorToast('Erro ao carregar QR Code. Tente novamente.');
-      };
-      qrImg.src = 'data:image/png;base64,' + data.qr_code_base64;
-      qrCodeImgContainer.appendChild(qrImg);
-    }
-
-    document.getElementById('qrCodeText').textContent = data.qr_code;
-    transactionId = data.id;
-    qrCodeExpirationTimestamp = data.expirationTimestamp;
-    document.getElementById('transactionId').textContent = 'ID da Transação: ' + transactionId;
-    if (pollingInterval) clearInterval(pollingInterval);
-    pollingInterval = setInterval(checkPaymentStatus, 5000);
+    processQRCodeResponse(data);
 
   } catch (error) {
     // LOG 5: Captura qualquer outro erro que possa ocorrer
@@ -677,6 +731,44 @@ document.getElementById('generateBtn').addEventListener('click', async function(
     this.classList.remove('loading');
   }
 });
+
+    // NOVO: Função auxiliar para processar resposta do QR Code
+    function processQRCodeResponse(data) {
+      // LOG 4: Confirma o sucesso e o disparo da notificação
+      console.log('[Página de Venda] QR Code recebido do servidor. A notificação para o admin foi disparada neste momento.');
+
+      // O resto do seu código de sucesso...
+      document.getElementById('qrDisplay').style.display = 'block';
+      document.getElementById('nome').style.display = 'none';
+      document.getElementById('telefone').style.display = 'none';
+      document.getElementById('cpf').style.display = 'none';
+      document.getElementById('email').style.display = 'none';
+      document.getElementById('generateBtn').style.display = 'none';
+
+      // CORRIGIDO: Valida e cria imagem com createElement
+      const qrCodeImgContainer = document.getElementById('qrCodeImg');
+      qrCodeImgContainer.innerHTML = ''; // Limpa conteúdo anterior
+
+      // Validação básica do base64
+      if (data.qr_code_base64 && typeof data.qr_code_base64 === 'string') {
+        const qrImg = document.createElement('img');
+        qrImg.alt = 'QR Code de Pagamento';
+        qrImg.style.width = '200px';
+        qrImg.style.height = '200px';
+        qrImg.onerror = function() {
+          showErrorToast('Erro ao carregar QR Code. Tente novamente.');
+        };
+        qrImg.src = 'data:image/png;base64,' + data.qr_code_base64;
+        qrCodeImgContainer.appendChild(qrImg);
+      }
+
+      document.getElementById('qrCodeText').textContent = data.qr_code;
+      transactionId = data.id;
+      qrCodeExpirationTimestamp = data.expirationTimestamp;
+      document.getElementById('transactionId').textContent = 'ID da Transação: ' + transactionId;
+      if (pollingInterval) clearInterval(pollingInterval);
+      pollingInterval = setInterval(checkPaymentStatus, 5000);
+    }
     
     // CORRIGIDO: Substituído alert() por toast notification
     document.getElementById('copyBtn').addEventListener('click', function() {
