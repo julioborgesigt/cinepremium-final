@@ -277,6 +277,26 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
   <script>
+    // CSRF Token cache
+    let csrfToken = null;
+
+    // Função para obter CSRF token
+    async function getCsrfToken() {
+      if (!csrfToken) {
+        try {
+          const response = await fetch('/api/csrf-token');
+          if (!response.ok) {
+            throw new Error('Erro ao obter CSRF token');
+          }
+          const data = await response.json();
+          csrfToken = data.csrfToken;
+        } catch (error) {
+          console.error('Erro ao obter CSRF token:', error);
+          throw error;
+        }
+      }
+      return csrfToken;
+    }
 
     // NOVO: Função para exibir toast notifications
     function showToast(message, type = 'info') {
@@ -299,10 +319,50 @@
       }, 3000);
     }
 
-    // NOVO: Função centralizada para fazer chamadas de API com tratamento de sessão expirada
+    // MODIFICADO: Função centralizada para fazer chamadas de API com CSRF e tratamento de sessão expirada
         async function authenticatedFetch(url, options = {}) {
             try {
+                // Adiciona CSRF token em requisições que modificam dados (POST, PUT, DELETE)
+                const method = options.method ? options.method.toUpperCase() : 'GET';
+                if (['POST', 'PUT', 'DELETE'].includes(method)) {
+                    const token = await getCsrfToken();
+                    options.headers = {
+                        ...options.headers,
+                        'CSRF-Token': token
+                    };
+                }
+
                 const response = await fetch(url, options);
+
+                // Se a resposta for 403 e for um método que requer CSRF, tenta novamente com novo token
+                if (response.status === 403 && ['POST', 'PUT', 'DELETE'].includes(method)) {
+                    csrfToken = null; // Limpa token antigo
+                    const newToken = await getCsrfToken();
+                    options.headers = {
+                        ...options.headers,
+                        'CSRF-Token': newToken
+                    };
+
+                    const retryResponse = await fetch(url, options);
+
+                    // Se ainda der 403, pode ser outro problema
+                    if (retryResponse.status === 403) {
+                        showToast('Erro de autenticação. Recarregue a página.', 'error');
+                        throw new Error('CSRF validation failed');
+                    }
+
+                    // Se agora for 401, sessão expirada
+                    if (retryResponse.status === 401) {
+                        const data = await retryResponse.json();
+                        showToast(data.error || 'Sua sessão expirou, faça o login novamente.', 'error');
+                        setTimeout(() => {
+                          window.location.href = '/login';
+                        }, 1500);
+                        throw new Error('Sessão expirada');
+                    }
+
+                    return retryResponse;
+                }
 
                 // Se a resposta for 401 (Não Autorizado), a sessão expirou
                 if (response.status === 401) {
