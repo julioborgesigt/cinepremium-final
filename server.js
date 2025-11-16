@@ -428,7 +428,7 @@ app.post('/auth', loginLimiter, applyCsrf, async (req, res) => {
     // Valida username
     if (username !== process.env.ADMIN_USER) {
       console.log('[AUTH] Username incorreto');
-      return res.redirect('/login?error=1');
+      return res.status(401).json({ error: 'Credenciais inválidas' });
     }
 
     // CORREÇÃO CRÍTICA #2: Senha SEMPRE em bcrypt (validado no início do arquivo)
@@ -440,7 +440,7 @@ app.post('/auth', loginLimiter, applyCsrf, async (req, res) => {
       req.session.regenerate((err) => {
         if (err) {
           console.error('[AUTH] Erro ao regenerar sessão:', err);
-          return res.redirect('/login?error=1');
+          return res.status(500).json({ error: 'Erro ao processar login' });
         }
 
         // Define a sessão como logada
@@ -450,7 +450,7 @@ app.post('/auth', loginLimiter, applyCsrf, async (req, res) => {
         req.session.save((saveErr) => {
           if (saveErr) {
             console.error('[AUTH] Erro ao salvar sessão:', saveErr);
-            return res.redirect('/login?error=1');
+            return res.status(500).json({ error: 'Erro ao salvar sessão' });
           }
           console.log('[AUTH] ✅ Login bem-sucedido');
           // CORREÇÃO: Não loga Session ID em produção
@@ -458,16 +458,17 @@ app.post('/auth', loginLimiter, applyCsrf, async (req, res) => {
             console.log('[AUTH] Novo Session ID:', req.sessionID);
             console.log('[AUTH] Session loggedin:', req.session.loggedin);
           }
-          res.redirect('/admin');
+          // Retorna JSON para requisições AJAX
+          res.json({ success: true, redirect: '/admin' });
         });
       });
     } else {
       console.log('[AUTH] Senha incorreta');
-      res.redirect('/login?error=1');
+      return res.status(401).json({ error: 'Credenciais inválidas' });
     }
   } catch (error) {
     console.error('[AUTH] Erro na autenticação:', error);
-    res.redirect('/login?error=1');
+    return res.status(500).json({ error: 'Erro no servidor' });
   }
 });
 
