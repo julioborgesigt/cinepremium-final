@@ -1526,11 +1526,16 @@ app.post('/api/devices', requireLogin, applyCsrf, async (req, res) => {
 });
 
 // NOVO: Rota para atualizar status de uma transação manualmente
+// IMPORTANTE: A OndaPay não possui endpoint GET para consultar status
+// O sistema funciona exclusivamente via webhooks
+// Esta rota permite atualização manual em casos de falha de webhook
 app.post('/api/update-transaction-status', requireLogin, applyCsrf, async (req, res) => {
-  const { transactionId } = req.body;
+  const { transactionId, newStatus } = req.body;
 
-  if (!transactionId) {
-    return res.status(400).json({ error: 'Transaction ID não fornecido.' });
+  if (!transactionId || !newStatus) {
+    return res.status(400).json({
+      error: 'Transaction ID e novo status são obrigatórios.'
+    });
   }
 
   try {
@@ -1543,91 +1548,34 @@ app.post('/api/update-transaction-status', requireLogin, applyCsrf, async (req, 
       return res.status(404).json({ error: 'Transação não encontrada.' });
     }
 
-    // Só atualiza se o status atual for 'Gerado'
-    if (purchase.status !== 'Gerado') {
+    // Validação de status
+    const validStatuses = ['Gerado', 'Sucesso', 'Falhou', 'Expirado'];
+
+    if (!validStatuses.includes(newStatus)) {
       return res.status(400).json({
-        error: `Transação já está com status: ${purchase.status}`,
-        currentStatus: purchase.status
+        error: `Status inválido. Use: ${validStatuses.join(', ')}`
       });
     }
 
-    // Obtém token da OndaPay
-    let token = await getOndaPayToken();
+    const oldStatus = purchase.status;
 
-    try {
-      // Consulta status na API da OndaPay
-      const response = await axios.get(
-        `${ONDAPAY_API_URL}/api/v1/deposit/pix/${transactionId}`,
-        { headers: { "Authorization": `Bearer ${token}` } }
-      );
+    // Atualiza o status no banco
+    await purchase.update({ status: newStatus });
 
-      const paymentData = response.data;
-      let newStatus = 'Gerado';
+    console.log(`✅ Status da transação ${transactionId} atualizado manualmente de ${oldStatus} para ${newStatus} pelo admin`);
 
-      // Mapeia o status da OndaPay para nosso status
-      if (paymentData.status === 'approved' || paymentData.status === 'paid') {
-        newStatus = 'Sucesso';
-      } else if (paymentData.status === 'rejected' || paymentData.status === 'failed') {
-        newStatus = 'Falhou';
-      } else if (paymentData.status === 'expired') {
-        newStatus = 'Expirado';
-      }
-
-      // Atualiza o status no banco
-      await purchase.update({ status: newStatus });
-
-      console.log(`✅ Status da transação ${transactionId} atualizado para: ${newStatus}`);
-
-      res.json({
-        success: true,
-        message: `Status atualizado para: ${newStatus}`,
-        transactionId: transactionId,
-        oldStatus: 'Gerado',
-        newStatus: newStatus
-      });
-
-    } catch (error) {
-      // Se for erro 401, tenta renovar token
-      if (error.response && error.response.status === 401) {
-        console.log("Token da OndaPay expirado. Renovando...");
-        token = await getOndaPayToken(true);
-
-        const retryResponse = await axios.get(
-          `${ONDAPAY_API_URL}/api/v1/deposit/pix/${transactionId}`,
-          { headers: { "Authorization": `Bearer ${token}` } }
-        );
-
-        const paymentData = retryResponse.data;
-        let newStatus = 'Gerado';
-
-        if (paymentData.status === 'approved' || paymentData.status === 'paid') {
-          newStatus = 'Sucesso';
-        } else if (paymentData.status === 'rejected' || paymentData.status === 'failed') {
-          newStatus = 'Falhou';
-        } else if (paymentData.status === 'expired') {
-          newStatus = 'Expirado';
-        }
-
-        await purchase.update({ status: newStatus });
-
-        console.log(`✅ Status da transação ${transactionId} atualizado para: ${newStatus}`);
-
-        res.json({
-          success: true,
-          message: `Status atualizado para: ${newStatus}`,
-          transactionId: transactionId,
-          oldStatus: 'Gerado',
-          newStatus: newStatus
-        });
-      } else {
-        throw error;
-      }
-    }
+    res.json({
+      success: true,
+      message: `Status atualizado de "${oldStatus}" para "${newStatus}"`,
+      transactionId: transactionId,
+      oldStatus: oldStatus,
+      newStatus: newStatus
+    });
 
   } catch (error) {
     console.error('Erro ao atualizar status da transação:', error);
     res.status(500).json({
-      error: 'Erro ao consultar status na OndaPay',
+      error: 'Erro ao processar atualização de status',
       details: error.message
     });
   }
