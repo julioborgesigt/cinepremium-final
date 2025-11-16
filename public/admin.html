@@ -565,6 +565,75 @@
       }
     }
 
+    /* Paginação */
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+
+    .pagination-button {
+      padding: 8px 16px;
+      background: #f8f9fa;
+      color: #2c3e50;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      width: auto;
+      min-width: 40px;
+    }
+
+    .pagination-button:hover:not(:disabled) {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-color: #667eea;
+    }
+
+    .pagination-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .pagination-button.active {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-color: #667eea;
+    }
+
+    .pagination-info {
+      color: #7f8c8d;
+      font-size: 0.9rem;
+      padding: 0 10px;
+    }
+
+    /* Botão de Atualizar Status */
+    .update-status-btn {
+      background: linear-gradient(135deg, #17a2b8, #138496);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      width: auto;
+    }
+
+    .update-status-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 4px 12px rgba(23, 162, 184, 0.3);
+    }
+
+    .update-status-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     /* Responsividade */
     @media (max-width: 768px) {
       body {
@@ -718,7 +787,33 @@
           </div>
 
           <div class="form-group">
-            <label for="mes">Mês</label>
+            <label for="searchTransactionId">Transaction ID</label>
+            <input type="text" id="searchTransactionId" placeholder="ID da transação...">
+          </div>
+
+          <div class="form-group">
+            <label for="searchStatus">Status</label>
+            <select id="searchStatus">
+              <option value="">Todos</option>
+              <option value="Gerado">Gerado</option>
+              <option value="Sucesso">Sucesso</option>
+              <option value="Falhou">Falhou</option>
+              <option value="Expirado">Expirado</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="dataInicio">Data Início</label>
+            <input type="date" id="dataInicio">
+          </div>
+
+          <div class="form-group">
+            <label for="dataFim">Data Fim</label>
+            <input type="date" id="dataFim">
+          </div>
+
+          <div class="form-group">
+            <label for="mes">Mês (ou use datas acima)</label>
             <select id="mes"></select>
           </div>
 
@@ -1069,20 +1164,41 @@
       }
     }
 
+    // Variável global para paginação
+    let currentPage = 1;
+    const itemsPerPage = 10;
+
     // Carrega histórico de compras com mais informações
-    async function loadHistory() {
+    async function loadHistory(page = 1) {
+      currentPage = page;
+
       const nome = document.getElementById('searchNome')?.value.trim() || "";
       const telefone = document.getElementById('searchTelefone')?.value.trim() || "";
-      const mes = document.getElementById('mes').value;
-      const ano = document.getElementById('ano').value;
+      const transactionId = document.getElementById('searchTransactionId')?.value.trim() || "";
+      const status = document.getElementById('searchStatus')?.value || "";
+      const dataInicio = document.getElementById('dataInicio')?.value || "";
+      const dataFim = document.getElementById('dataFim')?.value || "";
+      const mes = document.getElementById('mes')?.value || "";
+      const ano = document.getElementById('ano')?.value || "";
 
-      let url = `/api/purchase-history?mes=${mes}&ano=${ano}`;
+      let url = `/api/purchase-history?page=${page}&limit=${itemsPerPage}`;
       if (nome) url += `&nome=${encodeURIComponent(nome)}`;
       if (telefone) url += `&telefone=${encodeURIComponent(telefone)}`;
+      if (transactionId) url += `&transactionId=${encodeURIComponent(transactionId)}`;
+      if (status) url += `&status=${encodeURIComponent(status)}`;
+
+      // Prioriza range de datas personalizado
+      if (dataInicio && dataFim) {
+        url += `&dataInicio=${dataInicio}&dataFim=${dataFim}`;
+      } else if (mes && ano) {
+        url += `&mes=${mes}&ano=${ano}`;
+      }
 
       try {
         const response = await authenticatedFetch(url);
-        const history = await response.json();
+        const result = await response.json();
+        const history = result.data || [];
+        const pagination = result.pagination || {};
         const resultsDiv = document.getElementById('historyResults');
         resultsDiv.innerHTML = '';
 
@@ -1104,7 +1220,7 @@
         // Cabeçalho da tabela
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
-        ['Nome', 'Telefone', 'Data/Hora', 'Valor', 'Status', 'Transaction ID'].forEach(headerText => {
+        ['Nome', 'Telefone', 'Data/Hora', 'Valor', 'Status', 'Transaction ID', 'Ações'].forEach(headerText => {
           const th = document.createElement('th');
           th.textContent = headerText;
           headerRow.appendChild(th);
@@ -1181,11 +1297,30 @@
           }
           row.appendChild(transactionCell);
 
+          // Ações
+          const actionsCell = document.createElement('td');
+          if (item.status === 'Gerado' && item.transactionId) {
+            const updateBtn = document.createElement('button');
+            updateBtn.className = 'update-status-btn';
+            updateBtn.textContent = '🔄 Atualizar';
+            updateBtn.onclick = () => updateTransactionStatus(item.transactionId, item.id);
+            actionsCell.appendChild(updateBtn);
+          } else {
+            actionsCell.textContent = '-';
+          }
+          row.appendChild(actionsCell);
+
           tbody.appendChild(row);
         });
         table.appendChild(tbody);
         tableWrapper.appendChild(table);
         resultsDiv.appendChild(tableWrapper);
+
+        // Adiciona paginação
+        if (pagination.totalPages > 1) {
+          const paginationDiv = createPagination(pagination);
+          resultsDiv.appendChild(paginationDiv);
+        }
       } catch (error) {
         if (error.message !== 'Sessão expirada') {
           if (typeof console !== 'undefined' && console.error) {
@@ -1204,7 +1339,67 @@
       return value;
     }
 
-    document.getElementById('searchButton').addEventListener('click', loadHistory);
+    // Cria controles de paginação
+    function createPagination(pagination) {
+      const paginationDiv = document.createElement('div');
+      paginationDiv.className = 'pagination';
+
+      // Botão anterior
+      const prevBtn = document.createElement('button');
+      prevBtn.className = 'pagination-button';
+      prevBtn.textContent = '← Anterior';
+      prevBtn.disabled = pagination.page === 1;
+      prevBtn.onclick = () => loadHistory(pagination.page - 1);
+      paginationDiv.appendChild(prevBtn);
+
+      // Info da página
+      const pageInfo = document.createElement('span');
+      pageInfo.className = 'pagination-info';
+      pageInfo.textContent = `Página ${pagination.page} de ${pagination.totalPages} (${pagination.total} registros)`;
+      paginationDiv.appendChild(pageInfo);
+
+      // Botão próximo
+      const nextBtn = document.createElement('button');
+      nextBtn.className = 'pagination-button';
+      nextBtn.textContent = 'Próxima →';
+      nextBtn.disabled = pagination.page === pagination.totalPages;
+      nextBtn.onclick = () => loadHistory(pagination.page + 1);
+      paginationDiv.appendChild(nextBtn);
+
+      return paginationDiv;
+    }
+
+    // Atualiza status de uma transação
+    async function updateTransactionStatus(transactionId, purchaseId) {
+      if (!confirm('Deseja consultar o status atualizado desta transação na OndaPay?')) {
+        return;
+      }
+
+      try {
+        const response = await authenticatedFetch('/api/update-transaction-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transactionId })
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+          showToast(`Status atualizado: ${result.newStatus}`, 'success');
+          // Recarrega o histórico para mostrar o novo status
+          loadHistory(currentPage);
+        } else {
+          showToast(result.error || 'Erro ao atualizar status', 'error');
+        }
+      } catch (error) {
+        if (error.message !== 'Sessão expirada') {
+          console.error('Erro ao atualizar status:', error);
+          showToast('Erro ao atualizar status da transação', 'error');
+        }
+      }
+    }
+
+    document.getElementById('searchButton').addEventListener('click', () => loadHistory(1));
 
     // Funcionalidade de Collapse para seção de produtos
     function initializeCollapse() {
