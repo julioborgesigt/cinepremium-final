@@ -22,8 +22,77 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const csrf = require('csurf');
+const xss = require('xss');
+const validator = require('validator');
 
 const app = express();
+
+// ============================================
+// VALIDAÇÕES CRÍTICAS DE SEGURANÇA
+// ============================================
+
+// CORREÇÃO CRÍTICA #4: Validar SESSION_SECRET obrigatório
+if (!process.env.SESSION_SECRET) {
+  console.error('❌ ERRO CRÍTICO: SESSION_SECRET não configurado no .env');
+  console.error('Gere um secret forte com:');
+  console.error('node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+  process.exit(1);
+}
+
+// CORREÇÃO CRÍTICA #2: Validar que ADMIN_PASS está em formato bcrypt
+const passwordHash = process.env.ADMIN_PASS;
+if (!passwordHash || (!passwordHash.startsWith('$2b$') && !passwordHash.startsWith('$2a$'))) {
+  console.error('❌ ERRO CRÍTICO: ADMIN_PASS deve ser hash bcrypt');
+  console.error('Senhas em texto plano NÃO são mais suportadas por segurança');
+  console.error('Execute: npm run hash-password sua_senha_aqui');
+  process.exit(1);
+}
+
+// Validar credenciais OndaPay
+if (!process.env.ONDAPAY_CLIENT_ID || !process.env.ONDAPAY_CLIENT_SECRET) {
+  console.error('❌ ERRO: Credenciais OndaPay não configuradas');
+  console.error('Configure ONDAPAY_CLIENT_ID e ONDAPAY_CLIENT_SECRET no .env');
+  process.exit(1);
+}
+
+// CORREÇÃO CRÍTICA #1: Validar ONDAPAY_WEBHOOK_SECRET obrigatório
+if (!process.env.ONDAPAY_WEBHOOK_SECRET) {
+  console.error('❌ ERRO CRÍTICO: ONDAPAY_WEBHOOK_SECRET não configurado');
+  console.error('Este secret é essencial para validar webhooks e prevenir fraude');
+  console.error('Obtenha este valor no painel da OndaPay');
+  process.exit(1);
+}
+
+console.log('✅ Todas as variáveis de ambiente críticas configuradas');
+
+// ============================================
+// FUNÇÕES UTILITÁRIAS DE SEGURANÇA
+// ============================================
+
+// CORREÇÃO CRÍTICA #6: Função para sanitizar inputs e prevenir XSS
+function sanitizeInput(input) {
+  if (typeof input !== 'string') return input;
+
+  // Remover HTML/scripts maliciosos
+  return xss(validator.trim(input), {
+    whiteList: {}, // Não permite nenhuma tag HTML
+    stripIgnoreTag: true,
+    stripIgnoreTagBody: ['script', 'style']
+  });
+}
+
+// CORREÇÃO CRÍTICA #5: Wrapper para CSRF que só aplica se inicializado
+function applyCsrf(req, res, next) {
+  if (csrfProtection) {
+    csrfProtection(req, res, next);
+  } else {
+    // CSRF ainda não inicializado (servidor iniciando)
+    console.warn('[CSRF] Middleware ainda não inicializado, pulando proteção');
+    next();
+  }
+}
 
 // CRÍTICO: Confiar no proxy reverso (necessário para domcloud.co, heroku, etc)
 // Isso permite que o Express reconheça HTTPS quando atrás de um proxy
@@ -37,20 +106,41 @@ if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
   process.exit(1);
 }
 
-// NOVO: Configuração do CORS
+// CORREÇÃO CRÍTICA: Configuração segura do CORS
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production'
-    ? process.env.ALLOWED_ORIGINS?.split(',').map(origin => origin.trim()) // CORREÇÃO: Trim nos domínios
-    : true, // Em desenvolvimento, permite todas as origens
+    ? process.env.ALLOWED_ORIGINS?.split(',').map(origin => origin.trim())
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'], // Lista específica mesmo em dev
   credentials: true, // Permite cookies
   optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
 
-// NOVO: Configuração do Helmet para segurança
+// CORREÇÃO CRÍTICA #3: Configurar CSP adequado para proteção XSS
 app.use(helmet({
-  contentSecurityPolicy: false, // Desabilitado temporariamente para Firebase funcionar
-  crossOriginEmbedderPolicy: false
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: [
+        "'self'",
+        "https://www.gstatic.com",
+        "https://apis.google.com"
+      ],
+      connectSrc: [
+        "'self'",
+        "https://fcm.googleapis.com",
+        "https://fcmregistrations.googleapis.com",
+        "https://ondapay.app.br",
+        "https://api.ondapay.app.br"
+      ],
+      imgSrc: ["'self'", "data:", "https:"],
+      styleSrc: ["'self'", "'unsafe-inline'"], // unsafe-inline necessário por enquanto
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: []
+    }
+  },
+  crossOriginEmbedderPolicy: false // Necessário para Firebase
 }));
 
 // NOVO: Rate limiting global
@@ -70,6 +160,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Isso resolve problemas de vazamento de memória e permite scaling horizontal
 let redisClient;
 let sessionStore;
+let csrfProtection; // CORREÇÃO CRÍTICA #5: CSRF protection global
 
 // CORREÇÃO: Função async para inicializar Redis ANTES de configurar middlewares
 async function initializeRedis() {
@@ -326,15 +417,11 @@ const loginLimiter = rateLimit({
   skipSuccessfulRequests: true // Não conta logins bem-sucedidos
 });
 
-// MODIFICADO: Rota de autenticação com suporte a bcrypt
-app.post('/auth', loginLimiter, async (req, res) => {
+// CORREÇÃO CRÍTICA #2 e #5: Rota de autenticação com bcrypt e CSRF
+app.post('/auth', loginLimiter, applyCsrf, async (req, res) => {
   const { username, password } = req.body;
 
   console.log('[AUTH] Tentativa de login para usuário:', username);
-  // CORREÇÃO: Não loga Session ID em produção
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('[AUTH] Session ID antes do login:', req.sessionID);
-  }
 
   try {
     // Valida username
@@ -343,26 +430,9 @@ app.post('/auth', loginLimiter, async (req, res) => {
       return res.redirect('/login?error=1');
     }
 
-    // Verifica se a senha está em formato de hash bcrypt (começa com $2b$ ou $2a$)
+    // CORREÇÃO CRÍTICA #2: Senha SEMPRE em bcrypt (validado no início do arquivo)
     const passwordHash = process.env.ADMIN_PASS;
-    let isPasswordValid = false;
-
-    if (passwordHash && (passwordHash.startsWith('$2b$') || passwordHash.startsWith('$2a$'))) {
-      // Senha está em formato bcrypt hash
-      isPasswordValid = await bcrypt.compare(password, passwordHash);
-      // CORREÇÃO: Não loga resultado de verificação em produção
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[AUTH] Verificação bcrypt:', isPasswordValid);
-      }
-    } else {
-      // Backward compatibility: senha em texto plano
-      console.warn('⚠️ AVISO: Senha do admin está em texto plano. Use bcrypt para maior segurança.');
-      isPasswordValid = (password === passwordHash);
-      // CORREÇÃO: Não loga resultado de verificação em produção
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[AUTH] Verificação texto plano:', isPasswordValid);
-      }
-    }
+    const isPasswordValid = await bcrypt.compare(password, passwordHash);
 
     if (isPasswordValid) {
       // CORREÇÃO: Regenera o session ID para prevenir session fixation
@@ -582,6 +652,22 @@ app.get('/api/firebase-config', (req, res) => {
   }
 });
 
+// CORREÇÃO CRÍTICA #5: Endpoint para obter CSRF token
+app.get('/api/csrf-token', (req, res) => {
+  try {
+    if (!csrfProtection) {
+      return res.status(503).json({ error: 'CSRF protection não inicializado' });
+    }
+    // Usa o middleware CSRF para gerar token
+    csrfProtection(req, res, () => {
+      res.json({ csrfToken: req.csrfToken() });
+    });
+  } catch (error) {
+    console.error('[CSRF Token] Erro ao gerar token:', error);
+    res.status(500).json({ error: 'Erro ao gerar CSRF token' });
+  }
+});
+
 // NOVO: Endpoint de diagnóstico para verificar configurações (apenas quando logado)
 app.get('/api/diagnostics', requireLogin, async (req, res) => {
   try {
@@ -635,15 +721,23 @@ app.get('/api/diagnostics', requireLogin, async (req, res) => {
   }
 });
 
-// Endpoint para gerar QR Code de pagamento
-// MODIFICADO: A rota de gerar QR Code agora tem a lógica de renovação de token
-app.post('/gerarqrcode', async (req, res) => {
+// CORREÇÃO CRÍTICA #5 e #6: Endpoint com CSRF e sanitização de inputs
+app.post('/gerarqrcode', applyCsrf, async (req, res) => {
   try {
-    const { value, nome, telefone, cpf, email, productTitle, productDescription } = req.body;
+    const { value, telefone, cpf, productTitle, productDescription } = req.body;
 
-    // NOVO: Validações aprimoradas no backend
+    // CORREÇÃO CRÍTICA #6: Sanitizar inputs para prevenir XSS
+    const nome = sanitizeInput(req.body.nome);
+    const email = sanitizeInput(req.body.email);
+
+    // Validações básicas
     if (!value || !nome || !telefone || !cpf || !email) {
       return res.status(400).json({ error: "Todos os campos, incluindo e-mail, são obrigatórios." });
+    }
+
+    // Validar dados sanitizados
+    if (nome.length < 3) {
+      return res.status(400).json({ error: "Nome inválido ou contém caracteres não permitidos." });
     }
 
     // Validar CPF
@@ -651,10 +745,11 @@ app.post('/gerarqrcode', async (req, res) => {
       return res.status(400).json({ error: "CPF inválido. Por favor, verifique o número digitado." });
     }
 
-    // Validar e-mail
-    if (!isValidEmail(email)) {
+    // Validar e normalizar email
+    if (!validator.isEmail(email)) {
       return res.status(400).json({ error: "E-mail inválido. Por favor, verifique o endereço digitado." });
     }
+    const sanitizedEmail = validator.normalizeEmail(email);
 
     // Validar telefone
     if (!isValidPhone(telefone)) {
@@ -664,11 +759,6 @@ app.post('/gerarqrcode', async (req, res) => {
     // Validar valor do produto
     if (isNaN(value) || value <= 0) {
       return res.status(400).json({ error: "Valor do produto inválido." });
-    }
-
-    // Validar nome (mínimo 3 caracteres)
-    if (nome.trim().length < 3) {
-      return res.status(400).json({ error: "Nome deve ter no mínimo 3 caracteres." });
     }
     
     // Verificação de tentativas de compra
@@ -703,7 +793,7 @@ app.post('/gerarqrcode', async (req, res) => {
         webhook: WEBHOOK_URL,
         description: `${productTitle} - ${productDescription || ''}`,
         dueDate: dueDateFormatted,
-        payer: { name: nome, document: cpf.replace(/\D/g, ''), email: email }
+        payer: { name: nome, document: cpf.replace(/\D/g, ''), email: sanitizedEmail } // CORREÇÃO #6: Usa email sanitizado
       };
 
       // Obtém token e faz chamada à API OndaPay
@@ -783,40 +873,39 @@ app.post('/gerarqrcode', async (req, res) => {
 });
 
 // CORRIGIDO: Webhook com verificação de assinatura HMAC implementada
+// CORREÇÃO CRÍTICA #1: Webhook com verificação HMAC obrigatória
 app.post('/ondapay-webhook', async (req, res) => {
-    console.log('--- [WEBHOOK LOG] --- Webhook Recebido. Corpo da requisição:');
-    console.log(JSON.stringify(req.body, null, 2));
-    console.log('--- [WEBHOOK LOG] --- Fim do corpo da requisição.');
+    console.log('--- [WEBHOOK LOG] --- Webhook Recebido');
 
-    // Verificação de assinatura HMAC
-    if (process.env.ONDAPAY_WEBHOOK_SECRET) {
+    try {
+      // CORREÇÃO CRÍTICA #1: SEMPRE validar assinatura HMAC (secret validado no início do arquivo)
       const signature = req.headers['x-ondapay-signature'];
 
       if (!signature) {
-        console.error('[WEBHOOK LOG] Assinatura não fornecida no header. Possível tentativa de fraude.');
-        return res.status(401).send('Assinatura não fornecida.');
+        console.error('[WEBHOOK] Assinatura ausente. IP:', req.ip);
+        return res.status(401).json({ error: 'Missing signature' });
       }
 
-      const crypto = require('crypto');
+      // Calcular HMAC esperado
       const computedSignature = crypto
         .createHmac('sha256', process.env.ONDAPAY_WEBHOOK_SECRET)
         .update(JSON.stringify(req.body))
         .digest('hex');
 
-      // Comparação segura contra timing attacks
+      // Comparação timing-safe
       if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(computedSignature))) {
-        console.error('[WEBHOOK LOG] Assinatura inválida! Possível tentativa de fraude.');
-        console.error('[WEBHOOK LOG] Assinatura recebida:', signature);
-        console.error('[WEBHOOK LOG] Assinatura esperada:', computedSignature);
-        return res.status(401).send('Assinatura inválida.');
+        console.error('[WEBHOOK] Assinatura inválida! IP:', req.ip);
+        // CORREÇÃO: Não logar assinaturas em produção
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('[WEBHOOK] Recebida:', signature);
+          console.error('[WEBHOOK] Esperada:', computedSignature);
+        }
+        return res.status(401).json({ error: 'Invalid signature' });
       }
 
-      console.log('[WEBHOOK LOG] Assinatura verificada com sucesso.');
-    } else {
-      console.warn('[WEBHOOK LOG] ⚠️ AVISO: ONDAPAY_WEBHOOK_SECRET não está configurado. Webhook NÃO ESTÁ SEGURO!');
-    }
+      console.log('[WEBHOOK] ✅ Assinatura HMAC válida');
 
-    try {
+      // Processar webhook
       const { status, transaction_id, external_id } = req.body;
       if (!status || !transaction_id || !external_id) {
         console.warn(`[WEBHOOK LOG] Webhook recebido com dados incompletos.`, req.body);
@@ -865,8 +954,8 @@ app.post('/ondapay-webhook', async (req, res) => {
     }
   });
 
-// Endpoint para o cliente verificar o status do pagamento
-app.post('/check-local-status', async (req, res) => {
+// CORREÇÃO CRÍTICA #5: Endpoint com CSRF protection
+app.post('/check-local-status', applyCsrf, async (req, res) => {
     try {
       const { id } = req.body;
       if (!id) return res.status(400).json({ error: "ID da transação não fornecido." });
@@ -900,30 +989,34 @@ app.get('/api/products', async (req, res) => {
 
 // --- ENDPOINTS DE ADMINISTRAÇÃO (Protegidos) ---
 
-// MODIFICADO: Adicionado 'requireLogin' para proteger a rota
-app.post('/api/products', requireLogin, async (req, res) => {
+// CORREÇÃO CRÍTICA #5 e #6: CSRF + Sanitização
+app.post('/api/products', requireLogin, applyCsrf, async (req, res) => {
     try {
-      const { title, price, image, description } = req.body;
+      const { price, image } = req.body;
 
-      // Validações aprimoradas
+      // CORREÇÃO CRÍTICA #6: Sanitizar inputs
+      const title = sanitizeInput(req.body.title);
+      const description = req.body.description ? sanitizeInput(req.body.description) : '';
+
+      // Validações
       if (!title || !price || !image) {
         return res.status(400).json({ error: 'Título, preço e imagem são obrigatórios.' });
       }
 
-      // NOVO: Validar que o preço é um número positivo
+      // Validar dados sanitizados
+      if (title.length < 3) {
+        return res.status(400).json({ error: 'Título inválido ou contém caracteres não permitidos.' });
+      }
+
+      // Validar preço
       const priceNum = parseInt(price);
-      if (isNaN(priceNum) || priceNum <= 0) {
-        return res.status(400).json({ error: 'Preço deve ser um número positivo maior que zero.' });
+      if (isNaN(priceNum) || priceNum <= 0 || priceNum > 1000000) {
+        return res.status(400).json({ error: 'Preço inválido (deve ser entre 1 e 1.000.000 centavos).' });
       }
 
-      // NOVO: Validar tamanho da imagem (limite de 1MB em base64)
-      if (image.length > 1500000) { // ~1MB em base64
-        return res.status(400).json({ error: 'Imagem muito grande. O tamanho máximo é 1MB.' });
-      }
-
-      // NOVO: Validar que o título tem no mínimo 3 caracteres
-      if (title.trim().length < 3) {
-        return res.status(400).json({ error: 'Título deve ter no mínimo 3 caracteres.' });
+      // Validar tamanho da imagem
+      if (!image || image.length > 1500000) {
+        return res.status(400).json({ error: 'Imagem inválida ou muito grande (máx 1MB).' });
       }
 
       const product = await Product.create({ title, price: priceNum, image, description });
@@ -934,8 +1027,8 @@ app.post('/api/products', requireLogin, async (req, res) => {
     }
 });
   
-// MODIFICADO: Adicionado 'requireLogin' para proteger a rota
-app.put('/api/products/reorder', requireLogin, async (req, res) => {
+// CORREÇÃO CRÍTICA #5: Adicionado CSRF protection
+app.put('/api/products/reorder', requireLogin, applyCsrf, async (req, res) => {
     try {
       const { order } = req.body;
       if (!order || !Array.isArray(order)) {
@@ -951,8 +1044,8 @@ app.put('/api/products/reorder', requireLogin, async (req, res) => {
     }
 });
 
-// MODIFICADO: Adicionado 'requireLogin' para proteger a rota
-app.delete('/api/products/:id', requireLogin, async (req, res) => {
+// CORREÇÃO CRÍTICA #5: Adicionado CSRF protection
+app.delete('/api/products/:id', requireLogin, applyCsrf, async (req, res) => {
     try {
       const { id } = req.params;
       const rowsDeleted = await Product.destroy({ where: { id } });
@@ -973,7 +1066,9 @@ app.get('/api/purchase-history', requireLogin, async (req, res) => {
       let where = {};
   
       if (nome) {
-        where.nome = { [Op.like]: `%${nome}%` };
+        // CORREÇÃO CRÍTICA #7: Sanitizar caracteres especiais do LIKE para prevenir SQL injection
+        const sanitizedNome = nome.replace(/[%_]/g, '\\$&');
+        where.nome = { [Op.like]: `%${sanitizedNome}%` };
       }
       if (telefone) {
         where.telefone = telefone;
@@ -1043,7 +1138,7 @@ async function startServer() {
 
     actualSessionMiddleware = session({
       store: sessionStore, // Agora sessionStore está definido (RedisStore ou undefined para MemoryStore)
-      secret: process.env.SESSION_SECRET || 'fallback-secret-change-this',
+      secret: process.env.SESSION_SECRET, // CORREÇÃO CRÍTICA #4: Sem fallback inseguro
       resave: false,
       saveUninitialized: false,
       name: 'sessionId',
@@ -1059,6 +1154,16 @@ async function startServer() {
     });
     console.log('[DEBUG] actualSessionMiddleware atribuído:', !!actualSessionMiddleware);
     console.log(`✅ Middleware de sessão configurado (${sessionStore ? 'RedisStore' : 'MemoryStore'})`);
+
+    // CORREÇÃO CRÍTICA #5: Configurar CSRF protection após sessão
+    csrfProtection = csrf({
+      cookie: {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict'
+      }
+    });
+    console.log('✅ CSRF protection configurado');
 
     // Obtém token OndaPay antes de aceitar requisições
     console.log('📡 Obtendo token OndaPay...');
