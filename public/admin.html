@@ -165,6 +165,14 @@
       box-shadow: 0 6px 20px rgba(52, 152, 219, 0.4);
     }
 
+    .button-warning {
+      background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+    }
+
+    .button-warning:hover {
+      box-shadow: 0 6px 20px rgba(243, 156, 18, 0.4);
+    }
+
     /* Seção Colapsável */
     .collapsible-section {
       margin-bottom: 30px;
@@ -830,9 +838,10 @@
             <select id="ano"></select>
           </div>
         </div>
-        <div style="display: flex; gap: 10px; margin-top: 10px;">
+        <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
           <button id="searchButton">🔍 Buscar</button>
           <button id="refreshButton" class="button-secondary">🔄 Atualizar Todos</button>
+          <button id="archiveButton" class="button-warning">📦 Arquivar Pendentes</button>
         </div>
       </div>
 
@@ -1166,11 +1175,15 @@
         "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
         "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
       ];
-      selectMes.innerHTML = meses.map((m, i) => 
-        `<option value="${i + 1}" ${i + 1 === mesAtual ? "selected" : ""}>${m}</option>`
-      ).join("");
 
-      selectAno.innerHTML = "";
+      // Adiciona opção "Todos" + meses
+      selectMes.innerHTML = '<option value="">Todos</option>' +
+        meses.map((m, i) =>
+          `<option value="${i + 1}" ${i + 1 === mesAtual ? "selected" : ""}>${m}</option>`
+        ).join("");
+
+      // Adiciona opção "Todos" + anos
+      selectAno.innerHTML = '<option value="">Todos</option>';
       for (let ano = 2025; ano <= anoAtual; ano++) {
         selectAno.innerHTML += `<option value="${ano}" ${ano === anoAtual ? "selected" : ""}>${ano}</option>`;
       }
@@ -1464,6 +1477,83 @@
         showToast('❌ Erro ao atualizar dados', 'error');
       } finally {
         // Restaura o botão
+        button.textContent = originalText;
+        button.disabled = false;
+      }
+    });
+
+    // Funcionalidade de Arquivar Pendentes - Muda status "Gerado" para "Expirado"
+    document.getElementById('archiveButton').addEventListener('click', async () => {
+      const confirmMsg = '📦 Tem certeza que deseja arquivar TODAS as transações pendentes?\n\n' +
+                        'Todas as transações com status "Gerado" serão marcadas como "Expirado".\n\n' +
+                        'Esta ação não pode ser desfeita.';
+
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+
+      const button = document.getElementById('archiveButton');
+      const originalText = button.textContent;
+
+      try {
+        button.textContent = '⏳ Arquivando...';
+        button.disabled = true;
+
+        // Busca todas as transações com status "Gerado"
+        const response = await authenticatedFetch('/api/purchase-history?status=Gerado&limit=1000');
+        const data = await response.json();
+
+        if (!data.data || data.data.length === 0) {
+          showToast('ℹ️ Nenhuma transação pendente encontrada', 'info');
+          return;
+        }
+
+        const pendingTransactions = data.data;
+        let successCount = 0;
+        let errorCount = 0;
+
+        // Atualiza cada transação individualmente
+        for (const transaction of pendingTransactions) {
+          try {
+            const token = await getCsrfToken();
+            const updateResponse = await authenticatedFetch('/api/update-transaction-status', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'CSRF-Token': token
+              },
+              body: JSON.stringify({
+                transactionId: transaction.transactionId,
+                newStatus: 'Expirado'
+              })
+            });
+
+            if (updateResponse.ok) {
+              successCount++;
+            } else {
+              errorCount++;
+            }
+          } catch (error) {
+            errorCount++;
+            console.error(`Erro ao arquivar transação ${transaction.transactionId}:`, error);
+          }
+        }
+
+        // Mostra resultado
+        if (successCount > 0) {
+          showToast(`✅ ${successCount} transação(ões) arquivada(s) com sucesso!`, 'success');
+          // Recarrega o histórico
+          await loadHistory(currentPage);
+        }
+
+        if (errorCount > 0) {
+          showToast(`⚠️ ${errorCount} transação(ões) não puderam ser arquivadas`, 'warning');
+        }
+
+      } catch (error) {
+        console.error('Erro ao arquivar transações:', error);
+        showToast('❌ Erro ao arquivar transações', 'error');
+      } finally {
         button.textContent = originalText;
         button.disabled = false;
       }
