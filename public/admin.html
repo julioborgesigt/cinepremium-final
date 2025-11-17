@@ -1486,7 +1486,7 @@
     document.getElementById('archiveButton').addEventListener('click', async () => {
       const confirmMsg = '📦 Tem certeza que deseja arquivar TODAS as transações pendentes?\n\n' +
                         'Todas as transações com status "Gerado" serão marcadas como "Expirado".\n\n' +
-                        'Esta ação não pode ser desfeita.';
+                        'Você poderá reverter individualmente usando o botão 🔄 de cada transação.';
 
       if (!confirm(confirmMsg)) {
         return;
