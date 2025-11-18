@@ -94,7 +94,8 @@ function validateEnvironmentVariables() {
     });
   }
 
-  // 5. ONDAPAY_WEBHOOK_SECRET - Essencial para validar webhooks
+  // ALTERAÇÃO: Removida a obrigatoriedade do SECRET, pois a OndaPay não fornece
+  /*
   if (!process.env.ONDAPAY_WEBHOOK_SECRET) {
     errors.push({
       var: 'ONDAPAY_WEBHOOK_SECRET',
@@ -102,6 +103,7 @@ function validateEnvironmentVariables() {
       solution: 'Obtenha no painel da OndaPay - previne fraude de pagamentos'
     });
   }
+  */
 
   // 6. ALLOWED_ORIGINS - Obrigatório em produção
   if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
@@ -1061,8 +1063,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
   }
 });
 
-// CORRIGIDO: Webhook com verificação de assinatura HMAC implementada
-// CORREÇÃO CRÍTICA #1: Webhook com verificação HMAC obrigatória
+// CORRIGIDO: Webhook com verificação de assinatura HMAC DESATIVADA
 app.post('/ondapay-webhook', webhookLimiter, async (req, res) => {
     console.log('\n=====================================');
     console.log('🔔 [WEBHOOK LOG] Webhook Recebido');
@@ -1073,7 +1074,8 @@ app.post('/ondapay-webhook', webhookLimiter, async (req, res) => {
     console.log('=====================================\n');
 
     try {
-      // CORREÇÃO CRÍTICA #1: SEMPRE validar assinatura HMAC (secret validado no início do arquivo)
+      // ALTERAÇÃO: Comentado para permitir webhook sem assinatura
+      /*
       const signature = req.headers['x-ondapay-signature'];
 
       if (!signature) {
@@ -1101,6 +1103,9 @@ app.post('/ondapay-webhook', webhookLimiter, async (req, res) => {
       }
 
       console.log('[WEBHOOK] ✅ Assinatura HMAC válida');
+      */
+
+      console.log('[WEBHOOK] ⚠️ Validação de assinatura desativada (OndaPay). Processando diretamente...');
 
       // Processar webhook
       const { status, transaction_id, external_id } = req.body;
