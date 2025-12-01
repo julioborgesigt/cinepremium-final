@@ -1814,6 +1814,18 @@ async function startServer() {
     console.log(`  sessionStore definido: ${!!sessionStore}`);
     console.log(`  sessionStore é RedisStore: ${sessionStore && sessionStore.constructor.name === 'RedisStore'}`);
 
+    // CORREÇÃO CRÍTICA: Detecta se está em localhost para ajustar cookies
+    const isLocalDev = process.env.COOKIE_DOMAIN === undefined ||
+                       process.env.COOKIE_DOMAIN === 'localhost' ||
+                       !process.env.COOKIE_DOMAIN;
+
+    console.log('[Session Config] Ambiente detectado:', {
+      isLocalDev,
+      cookieDomain: process.env.COOKIE_DOMAIN,
+      nodeEnv: process.env.NODE_ENV,
+      willUseSecureCookies: !isLocalDev && process.env.NODE_ENV === 'production'
+    });
+
     actualSessionMiddleware = session({
       store: sessionStore, // Agora sessionStore está definido (RedisStore ou undefined para MemoryStore)
       secret: process.env.SESSION_SECRET, // CORREÇÃO CRÍTICA #4: Sem fallback inseguro
@@ -1824,10 +1836,12 @@ async function startServer() {
       cookie: {
         maxAge: 8 * 60 * 60 * 1000, // 8 horas
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        // CORREÇÃO: Force secure=false em localhost mesmo se NODE_ENV=production
+        secure: !isLocalDev && process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
-        domain: process.env.COOKIE_DOMAIN || undefined
+        // CORREÇÃO: Não define domain em localhost
+        domain: isLocalDev ? undefined : process.env.COOKIE_DOMAIN
       }
     });
     console.log('[DEBUG] actualSessionMiddleware atribuído:', !!actualSessionMiddleware);
@@ -1836,13 +1850,26 @@ async function startServer() {
     // ATUALIZADO: Configurar CSRF protection com csrf-csrf (substitui csurf deprecado)
     const csrfSecret = process.env.CSRF_SECRET || process.env.SESSION_SECRET;
 
+    // CORREÇÃO CRÍTICA: Detecta automaticamente se está em localhost para ajustar cookies
+    const isLocalhost = process.env.COOKIE_DOMAIN === undefined ||
+                        process.env.COOKIE_DOMAIN === 'localhost' ||
+                        !process.env.COOKIE_DOMAIN;
+
+    console.log('[CSRF Config] Ambiente detectado:', {
+      isLocalhost,
+      cookieDomain: process.env.COOKIE_DOMAIN,
+      nodeEnv: process.env.NODE_ENV,
+      willUseSecureCookies: !isLocalhost && process.env.NODE_ENV === 'production'
+    });
+
     const csrfConfig = doubleCsrf({
       getSecret: () => csrfSecret,
       cookieName: 'x-csrf-token', // Removido __Host- para compatibilidade com HTTP em dev
       cookieOptions: {
         httpOnly: true,
         sameSite: 'lax', // Mudado de strict para lax para permitir navegação
-        secure: process.env.NODE_ENV === 'production',
+        // CORREÇÃO: Force secure=false em localhost mesmo se NODE_ENV=production
+        secure: !isLocalhost && process.env.NODE_ENV === 'production',
         path: '/'
       },
       size: 64,
