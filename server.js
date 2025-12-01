@@ -23,7 +23,8 @@ const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const csrf = require('csurf');
+// ATUALIZADO: Migrado de csurf (deprecado) para csrf-csrf
+const { doubleCsrf } = require('csrf-csrf');
 const xss = require('xss');
 const validator = require('validator');
 
@@ -179,7 +180,7 @@ function sanitizeInput(input) {
   });
 }
 
-// CORREÇÃO CRÍTICA #5: Wrapper para CSRF que só aplica se inicializado
+// ATUALIZADO: Wrapper para CSRF que só aplica se inicializado (csrf-csrf)
 function applyCsrf(req, res, next) {
   if (csrfProtection) {
     csrfProtection(req, res, next);
@@ -783,16 +784,15 @@ app.get('/api/firebase-config', (req, res) => {
   }
 });
 
-// CORREÇÃO CRÍTICA #5: Endpoint para obter CSRF token
+// ATUALIZADO: Endpoint para obter CSRF token (csrf-csrf)
 app.get('/api/csrf-token', (req, res) => {
   try {
-    if (!csrfProtection) {
+    if (!global.generateCsrfToken) {
       return res.status(503).json({ error: 'CSRF protection não inicializado' });
     }
-    // Usa o middleware CSRF para gerar token
-    csrfProtection(req, res, () => {
-      res.json({ csrfToken: req.csrfToken() });
-    });
+    // Gera token usando csrf-csrf
+    const csrfToken = global.generateCsrfToken(req, res);
+    res.json({ csrfToken });
   } catch (error) {
     console.error('[CSRF Token] Erro ao gerar token:', error);
     res.status(500).json({ error: 'Erro ao gerar CSRF token' });
@@ -1774,15 +1774,33 @@ async function startServer() {
     console.log('[DEBUG] actualSessionMiddleware atribuído:', !!actualSessionMiddleware);
     console.log(`✅ Middleware de sessão configurado (${sessionStore ? 'RedisStore' : 'MemoryStore'})`);
 
-    // CORREÇÃO CRÍTICA #5: Configurar CSRF protection após sessão
-    csrfProtection = csrf({
-      cookie: {
+    // ATUALIZADO: Configurar CSRF protection com csrf-csrf (substitui csurf deprecado)
+    const csrfSecret = process.env.CSRF_SECRET || process.env.SESSION_SECRET;
+
+    const {
+      generateToken,
+      doubleCsrfProtection,
+    } = doubleCsrf({
+      getSecret: () => csrfSecret,
+      cookieName: '__Host-psifi.x-csrf-token',
+      cookieOptions: {
         httpOnly: true,
+        sameSite: 'strict',
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict'
+        path: '/'
+      },
+      size: 64,
+      ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
+      getTokenFromRequest: (req) => {
+        return req.headers['x-csrf-token'] || req.body._csrf;
       }
     });
-    console.log('✅ CSRF protection configurado');
+
+    // Exporta funções para uso global
+    csrfProtection = doubleCsrfProtection;
+    global.generateCsrfToken = generateToken;
+
+    console.log('✅ CSRF protection configurado (csrf-csrf)');
 
     // Obtém token OndaPay antes de aceitar requisições
     console.log('📡 Obtendo token OndaPay...');

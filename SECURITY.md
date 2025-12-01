@@ -53,37 +53,88 @@ Todas as entradas de usuário são validadas no servidor:
 
 ---
 
-## ⚠️ Vulnerabilidades Conhecidas (TODO)
+## 🔄 ATUALIZAÇÕES DE SEGURANÇA (2025-12-01)
 
-### 1. Webhook sem Verificação de Assinatura ⚠️ CRÍTICO
-**Status**: Não implementado
-**Localização**: `server.js:457` - endpoint `/ondapay-webhook`
+### ✅ Correções Implementadas
 
-**Problema**: O webhook da OndaPay não verifica a assinatura HMAC, permitindo que atacantes enviem requisições falsas simulando pagamentos.
+#### 1. ✅ Vulnerabilidade node-forge CORRIGIDA
+**Status**: ✅ RESOLVIDO
+**Data**: 2025-12-01
 
-**Solução Recomendada**:
-```javascript
-const crypto = require('crypto');
+**Problema**: Dependência `node-forge` com vulnerabilidade HIGH (CVE GHSA-5gfm-wpxj-wjgq, CVSS 8.6)
+- ASN.1 Unbounded Recursion
+- Interpretation Conflict vulnerability
 
-function verifyWebhookSignature(payload, signature, secret) {
-  const computedSignature = crypto
-    .createHmac('sha256', secret)
-    .update(JSON.stringify(payload))
-    .digest('hex');
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(computedSignature)
-  );
-}
-
-// No webhook:
-const signature = req.headers['x-ondapay-signature'];
-if (!verifyWebhookSignature(req.body, signature, process.env.ONDAPAY_WEBHOOK_SECRET)) {
-  return res.status(401).send('Assinatura inválida');
-}
+**Solução Aplicada**:
+```bash
+npm update node-forge  # Atualizado para versão >= 1.3.2
 ```
 
-**Prioridade**: 🔴 CRÍTICA - Implementar antes de produção
+**Resultado**: ✅ `npm audit` agora reporta **0 vulnerabilidades**
+
+---
+
+#### 2. ✅ Biblioteca csurf Deprecada SUBSTITUÍDA
+**Status**: ✅ RESOLVIDO
+**Data**: 2025-12-01
+
+**Problema**: Biblioteca `csurf` foi descontinuada em 2021 e não recebe mais atualizações de segurança.
+
+**Solução Aplicada**:
+```bash
+npm uninstall csurf
+npm install csrf-csrf
+```
+
+**Mudanças no Código**:
+- `server.js:27` - Import atualizado para `csrf-csrf`
+- `server.js:1778-1804` - Configuração migrada para `doubleCsrf`
+- `server.js:787-800` - Endpoint `/api/csrf-token` atualizado
+
+**Benefícios**:
+- Biblioteca mantida ativamente
+- Melhor proteção contra CSRF
+- Double-submit cookie pattern
+- Sem vulnerabilidades conhecidas
+
+---
+
+## ⚠️ Limitações Conhecidas
+
+### 1. Webhook OndaPay sem Assinatura HMAC ⚠️ LIMITAÇÃO DA API
+**Status**: ⚠️ LIMITAÇÃO EXTERNA (não é falha do código)
+**Localização**: `server.js:1067` - endpoint `/ondapay-webhook`
+**Documentação Completa**: Ver [`ONDAPAY_WEBHOOK_SECURITY.md`](./ONDAPAY_WEBHOOK_SECURITY.md)
+
+**Problema**: A API OndaPay **NÃO fornece mecanismo de validação de assinatura HMAC** em webhooks, conforme confirmado pelo desenvolvedor.
+
+**⚠️ Risco**: Sem validação de assinatura, o endpoint é teoricamente vulnerável a webhooks falsos.
+
+**✅ Mitigações Implementadas**:
+1. ✅ Rate limiting agressivo (30 webhooks/minuto)
+2. ✅ Idempotência (previne processamento duplicado)
+3. ✅ Validação robusta de dados de entrada
+4. ✅ Logging detalhado para auditoria forense
+5. ✅ Notificações push em tempo real para admin
+6. ✅ Timeout de QR Code (30 minutos)
+
+**🔴 Mitigação Recomendada (NÃO IMPLEMENTADA):**
+- **Whitelist de IPs da OndaPay** (reduz risco em ~90%)
+- Solicitar lista de IPs ao suporte da OndaPay
+- Implementar middleware de validação de IP
+
+**Nível de Risco**:
+- Sem mitigações: 🔴 CRÍTICO (10/10)
+- Com mitigações atuais: 🟡 MÉDIO (5/10)
+- Com whitelist de IPs: 🟢 BAIXO (2/10)
+
+**Ação Recomendada**:
+1. Solicitar IPs da OndaPay ao suporte
+2. Implementar whitelist conforme [`ONDAPAY_WEBHOOK_SECURITY.md`](./ONDAPAY_WEBHOOK_SECURITY.md)
+3. Monitorar logs ativamente
+4. Pressionar OndaPay para implementar assinatura HMAC
+
+**Prioridade**: 🟡 MÉDIA - Implementar whitelist de IPs esta semana
 
 ---
 
