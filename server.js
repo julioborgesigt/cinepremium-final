@@ -1788,10 +1788,7 @@ async function startServer() {
     // ATUALIZADO: Configurar CSRF protection com csrf-csrf (substitui csurf deprecado)
     const csrfSecret = process.env.CSRF_SECRET || process.env.SESSION_SECRET;
 
-    const {
-      generateToken,
-      doubleCsrfProtection,
-    } = doubleCsrf({
+    const csrfConfig = doubleCsrf({
       getSecret: () => csrfSecret,
       cookieName: 'x-csrf-token', // Removido __Host- para compatibilidade com HTTP em dev
       cookieOptions: {
@@ -1808,8 +1805,14 @@ async function startServer() {
     });
 
     // Exporta funções para uso nas rotas
-    csrfProtection = doubleCsrfProtection;
-    generateCsrfToken = generateToken;
+    csrfProtection = csrfConfig.doubleCsrfProtection;
+    generateCsrfToken = csrfConfig.generateToken;
+
+    // DEBUG: Verificar se funções foram atribuídas corretamente
+    console.log('[DEBUG] CSRF atribuído:', {
+      hasCsrfProtection: typeof csrfProtection === 'function',
+      hasGenerateToken: typeof generateCsrfToken === 'function'
+    });
 
     console.log('✅ CSRF protection configurado (csrf-csrf)');
 
