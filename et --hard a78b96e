@@ -1,0 +1,84 @@
+[33mf2f8815[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m tenta corrigir
+[33mbf40bd5[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge pull request #57 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33mb01dd85[m[33m ([m[1;31morigin/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1[m[33m)[m feat: Adicionar suporte para IS_LOCAL no .env
+[33m61dd0f8[m Merge pull request #56 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33md3b4b84[m fix: Auto-detectar localhost e ajustar cookies para HTTP
+[33m133860b[m Merge pull request #55 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33mec0050e[m debug: Adicionar logs detalhados de CSRF para diagnosticar validação
+[33mb296bbf[m Merge pull request #54 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33m9f5641f[m fix: Corrigir nome do header CSRF para x-csrf-token
+[33m4f117be[m Merge pull request #53 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33m876a232[m feat: Adicionar mensagem detalhada de rate limit no login
+[33m403c3ba[m Merge pull request #52 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33m2f9f4ac[m fix: Adicionar getSessionIdentifier obrigatório para csrf-csrf
+[33m958b5a1[m Merge pull request #51 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33m395cb40[m docs: Atualizar SECURITY.md com correção da vulnerabilidade express
+[33m444d022[m Merge pull request #50 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33meaacc14[m fix: Atualizar express para 4.22.0 e eliminar última vulnerabilidade
+[33md7ef4da[m Merge pull request #49 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33mc0b826c[m fix: Usar nome correto da propriedade generateCsrfToken
+[33m1ddf287[m Merge pull request #48 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33mc6b49cc[m debug: Adicionar logs para investigar estrutura do csrfConfig
+[33m0bac506[m Merge pull request #47 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33m5ef4177[m fix: Corrigir atribuição de generateCsrfToken usando objeto completo
+[33m45d0966[m tenta corrigir
+[33mb96ce21[m Merge pull request #46 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33m8da0d4b[m fix: Adicionar flag serverReady para prevenir 503 durante inicialização
+[33m7d0976c[m Merge pull request #45 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33m27811cf[m fix: Corrigir inicialização do CSRF token
+[33me92d4ef[m Merge pull request #44 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33m0fb0ad9[m fix: Corrigir vulnerabilidades críticas de segurança
+[33m2b38915[m Merge pull request #43 from julioborgesigt/claude/code-audit-review-01PhTZGtfBZHBP2HAVbZ1Gh1
+[33ma78b96e[m[33m ([m[1;32mramo-verificacao[m[33m)[m feat: Adicionar relatório completo de auditoria sênior de código
+[33ma245a63[m conserta webhook
+[33m04b6b2c[m Merge pull request #42 from julioborgesigt/claude/improve-admin-page-01T3nGUNXfqhiGFZH5VFfz6A
+[33m888922e[m[33m ([m[1;31morigin/claude/improve-admin-page-01T3nGUNXfqhiGFZH5VFfz6A[m[33m)[m feat: Aumentar limite de requisições globais de 100 para 500
+[33m86a02ff[m Merge pull request #41 from julioborgesigt/claude/improve-admin-page-01T3nGUNXfqhiGFZH5VFfz6A
+[33m36973b1[m feat: Tornar formulário de adicionar produto colapsável e oculto por padrão
+[33m03fb30b[m fix: Corrigir mensagem de confirmação do botão de arquivamento
+[33m9b1ebe1[m Merge pull request #40 from julioborgesigt/claude/improve-admin-page-01T3nGUNXfqhiGFZH5VFfz6A
+[33mdd66b72[m feat: Adicionar botão de arquivamento e melhorias nos filtros
+[33m415aa0b[m Merge pull request #39 from julioborgesigt/claude/improve-admin-page-01T3nGUNXfqhiGFZH5VFfz6A
+[33mcbefc3c[m fix: Corrigir atualização manual de status de transações
+[33m50f6679[m Merge pull request #38 from julioborgesigt/claude/improve-admin-page-01T3nGUNXfqhiGFZH5VFfz6A
+[33m1628356[m feat: Implementar atualização em massa de status de transações
+[33mdc90281[m Merge pull request #37 from julioborgesigt/claude/improve-admin-page-01T3nGUNXfqhiGFZH5VFfz6A
+[33mcd03550[m feat: Adicionar logging detalhado e ferramentas de diagnóstico de pagamento
+[33m1ec4627[m Merge pull request #36 from julioborgesigt/claude/improve-admin-page-01T3nGUNXfqhiGFZH5VFfz6A
+[33md9e63b2[m fix: Corrigir atualização manual de status de transações
+[33m49cbbee[m Merge pull request #35 from julioborgesigt/claude/improve-admin-page-01T3nGUNXfqhiGFZH5VFfz6A
+[33m5fe169e[m feat: Implementar filtros avançados, paginação e atualização de status
+[33mba8c731[m Merge pull request #34 from julioborgesigt/claude/improve-admin-page-01T3nGUNXfqhiGFZH5VFfz6A
+[33m4f156ae[m feat: Adicionar valor da compra no histórico e dashboard de estatísticas
+[33m1814ba2[m Merge pull request #33 from julioborgesigt/claude/improve-admin-page-01T3nGUNXfqhiGFZH5VFfz6A
+[33m6e3cde5[m feat: Modernizar interface da página de administração
+[33m0af9c1e[m Merge pull request #32 from julioborgesigt/claude/code-audit-review-014VqpuJLMpct4b5Jj3LWKtK
+[33m7a9350b[m[33m ([m[1;31morigin/claude/code-audit-review-014VqpuJLMpct4b5Jj3LWKtK[m[33m)[m fix: Corrigir race condition no Service Worker para notificações push
+[33m2632f33[m Merge pull request #31 from julioborgesigt/claude/code-audit-review-014VqpuJLMpct4b5Jj3LWKtK
+[33mc276121[m fix: Adicionar ferramentas de debug e correções para webhooks em localhost
+[33mf9d1601[m Merge pull request #30 from julioborgesigt/claude/code-audit-review-014VqpuJLMpct4b5Jj3LWKtK
+[33mcaca8c0[m feat: Implementar 8 melhorias de alta prioridade pós-auditoria
+[33m61ae63a[m feat: Implementar 3 melhorias de alta prioridade de segurança
+[33m93e2e64[m Merge pull request #29 from julioborgesigt/claude/code-audit-review-014VqpuJLMpct4b5Jj3LWKtK
+[33m4fc0271[m fix: Atualizar CSP para permitir cdn.jsdelivr.net e source maps do Firebase
+[33m773c705[m Merge pull request #28 from julioborgesigt/claude/code-audit-review-014VqpuJLMpct4b5Jj3LWKtK
+[33m0e735cf[m fix: Melhorar tratamento de resposta de login no frontend
+[33m244a590[m fix: Corrigir autenticação para retornar JSON ao invés de redirect
+[33m0177be2[m Merge pull request #27 from julioborgesigt/claude/code-audit-review-014VqpuJLMpct4b5Jj3LWKtK
+[33m594b1e5[m docs: Adicionar documentação completa da implementação CSRF
+[33ma2b3758[m feat: Implementar proteção CSRF completa no frontend e backend
+[33ma208a27[m feat: Adicionar exemplos de autenticação em banco de dados
+[33mc58a887[m Merge pull request #26 from julioborgesigt/claude/code-audit-review-014VqpuJLMpct4b5Jj3LWKtK
+[33m5fb5c9a[m fix: Hotfix CSRF e CSP para compatibilidade com frontend
+[33m0c6d984[m Merge pull request #25 from julioborgesigt/claude/code-audit-review-014VqpuJLMpct4b5Jj3LWKtK
+[33m8f04835[m feat: Implementar 7 correções críticas de segurança
+[33m4f28a63[m feat: Adicionar auditoria completa de código e guia de correções críticas
+[33m7214aae[m Merge pull request #24 from julioborgesigt/claude/investigate-duplicate-product-table-011CUvjRmMT23HgF31MiaDYZ
+[33mced74ea[m[33m ([m[1;31morigin/claude/investigate-duplicate-product-table-011CUvjRmMT23HgF31MiaDYZ[m[33m)[m feat: Adicionar script SQL para migração de tabelas Product/Products
+[33m41c2f55[m Merge pull request #23 from julioborgesigt/claude/investigate-duplicate-product-table-011CUvjRmMT23HgF31MiaDYZ
+[33mf10af25[m feat: Adicionar script de migração para consolidar tabelas Product/Products
+[33m3c06213[m Merge pull request #22 from julioborgesigt/claude/investigate-duplicate-product-table-011CUvjRmMT23HgF31MiaDYZ
+[33m4722101[m feat: Add database tables diagnostic script
+[33m5ac3c98[m Delete .env
+[33m97e6f18[m Merge pull request #21 from julioborgesigt/claude/code-review-audit-011CUu8TihSYT8EZpiQjAGoq
+[33m9b7bbc0[m[33m ([m[1;31morigin/claude/cod
