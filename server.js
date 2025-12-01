@@ -1815,7 +1815,9 @@ async function startServer() {
     console.log(`  sessionStore é RedisStore: ${sessionStore && sessionStore.constructor.name === 'RedisStore'}`);
 
     // CORREÇÃO CRÍTICA: Detecta se está em localhost para ajustar cookies
-    const isLocalDev = process.env.COOKIE_DOMAIN === undefined ||
+    // Prioriza IS_LOCAL do .env, senão verifica se COOKIE_DOMAIN está vazio
+    const isLocalDev = process.env.IS_LOCAL === 'true' ||
+                       process.env.COOKIE_DOMAIN === undefined ||
                        process.env.COOKIE_DOMAIN === 'localhost' ||
                        !process.env.COOKIE_DOMAIN;
 
@@ -1851,7 +1853,9 @@ async function startServer() {
     const csrfSecret = process.env.CSRF_SECRET || process.env.SESSION_SECRET;
 
     // CORREÇÃO CRÍTICA: Detecta automaticamente se está em localhost para ajustar cookies
-    const isLocalhost = process.env.COOKIE_DOMAIN === undefined ||
+    // Prioriza IS_LOCAL do .env, senão verifica se COOKIE_DOMAIN está vazio
+    const isLocalhost = process.env.IS_LOCAL === 'true' ||
+                        process.env.COOKIE_DOMAIN === undefined ||
                         process.env.COOKIE_DOMAIN === 'localhost' ||
                         !process.env.COOKIE_DOMAIN;
 
