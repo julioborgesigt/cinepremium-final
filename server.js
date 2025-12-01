@@ -183,6 +183,16 @@ function sanitizeInput(input) {
 // ATUALIZADO: Wrapper para CSRF que só aplica se inicializado (csrf-csrf)
 function applyCsrf(req, res, next) {
   if (csrfProtection) {
+    // DEBUG: Log detalhado antes da validação
+    console.log('[CSRF DEBUG] Validando request:', {
+      method: req.method,
+      path: req.path,
+      cookieValue: req.cookies['x-csrf-token'],
+      headerValue: req.headers['x-csrf-token'],
+      bodyValue: req.body._csrf,
+      sessionID: req.session?.id
+    });
+
     csrfProtection(req, res, next);
   } else {
     // CSRF ainda não inicializado (servidor iniciando)
@@ -833,6 +843,14 @@ app.get('/api/csrf-token', (req, res) => {
     }
     // Gera token usando csrf-csrf
     const csrfToken = generateCsrfToken(req, res);
+
+    // DEBUG: Log do token gerado
+    console.log('[CSRF Token] Token gerado:', {
+      tokenLength: csrfToken?.length,
+      sessionID: req.session?.id,
+      cookieWillBe: res.getHeader('Set-Cookie')
+    });
+
     res.json({ csrfToken });
   } catch (error) {
     console.error('[CSRF Token] Erro ao gerar token:', error);
