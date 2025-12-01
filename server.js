@@ -1804,6 +1804,15 @@ async function startServer() {
       }
     });
 
+    // DEBUG: Ver o que doubleCsrf retorna
+    console.log('[DEBUG] csrfConfig keys:', Object.keys(csrfConfig));
+    console.log('[DEBUG] csrfConfig types:', {
+      doubleCsrfProtection: typeof csrfConfig.doubleCsrfProtection,
+      generateToken: typeof csrfConfig.generateToken,
+      // Tentar outros nomes possíveis
+      invalidCsrfTokenError: typeof csrfConfig.invalidCsrfTokenError
+    });
+
     // Exporta funções para uso nas rotas
     csrfProtection = csrfConfig.doubleCsrfProtection;
     generateCsrfToken = csrfConfig.generateToken;
