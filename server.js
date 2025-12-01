@@ -1801,6 +1801,15 @@ async function startServer() {
       ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
       getTokenFromRequest: (req) => {
         return req.headers['x-csrf-token'] || req.body._csrf;
+      },
+      // CRÍTICO: Função para identificar a sessão (necessária para csrf-csrf)
+      getSessionIdentifier: (req) => {
+        // Se houver sessão ativa, usa o ID da sessão
+        if (req.session && req.session.id) {
+          return req.session.id;
+        }
+        // Fallback: usa IP + User-Agent como identificador único
+        return `${req.ip}-${req.get('user-agent') || 'unknown'}`;
       }
     });
 
