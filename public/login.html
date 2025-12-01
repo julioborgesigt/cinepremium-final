@@ -115,39 +115,66 @@
               // Login bem-sucedido, usa redirect do servidor
               const data = await response.json();
               window.location.href = data.redirect || '/admin';
-            } else {
-              // Se for 403, token CSRF inválido - recarrega e tenta novamente
-              if (response.status === 403) {
-                csrfToken = null; // Limpa token antigo
-                const newToken = await getCsrfToken();
+            } else if (response.status === 429) {
+              // Rate limit excedido - mostra tempo de espera
+              const errorData = await response.json().catch(() => ({}));
+              const errorMessageDiv = document.getElementById('errorMessage');
 
-                // Tenta novamente com novo token
-                const retryResponse = await fetch('/auth', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'CSRF-Token': newToken
-                  },
-                  body: JSON.stringify({ username, password })
-                });
+              // Mensagem detalhada com tempo de espera
+              errorMessageDiv.innerHTML = `
+                <strong>⚠️ Limite de tentativas excedido!</strong><br>
+                ${errorData.message || 'Muitas tentativas de login.'}<br>
+                <small>Máximo: ${errorData.maxAttempts || 5} tentativas a cada ${errorData.windowMinutes || 15} minutos</small>
+              `;
+              errorMessageDiv.style.display = 'block';
 
-                if (retryResponse.ok) {
-                  const retryData = await retryResponse.json();
-                  window.location.href = retryData.redirect || '/admin';
-                } else {
-                  // Credenciais inválidas
-                  const errorData = await retryResponse.json().catch(() => ({}));
-                  const errorMessageDiv = document.getElementById('errorMessage');
-                  errorMessageDiv.textContent = errorData.error || 'Usuário ou senha incorretos. Tente novamente.';
-                  errorMessageDiv.style.display = 'block';
-                }
+              // Desabilita o botão temporariamente
+              submitButton.disabled = true;
+              submitButton.textContent = 'Aguarde...';
+
+              console.warn('[Rate Limit] Bloqueio de login:', errorData);
+            } else if (response.status === 403) {
+              // Token CSRF inválido - recarrega e tenta novamente
+              csrfToken = null; // Limpa token antigo
+              const newToken = await getCsrfToken();
+
+              // Tenta novamente com novo token
+              const retryResponse = await fetch('/auth', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'CSRF-Token': newToken
+                },
+                body: JSON.stringify({ username, password })
+              });
+
+              if (retryResponse.ok) {
+                const retryData = await retryResponse.json();
+                window.location.href = retryData.redirect || '/admin';
+              } else if (retryResponse.status === 429) {
+                // Rate limit na segunda tentativa
+                const errorData = await retryResponse.json().catch(() => ({}));
+                const errorMessageDiv = document.getElementById('errorMessage');
+                errorMessageDiv.innerHTML = `
+                  <strong>⚠️ Limite de tentativas excedido!</strong><br>
+                  ${errorData.message || 'Muitas tentativas de login.'}<br>
+                  <small>Máximo: ${errorData.maxAttempts || 5} tentativas a cada ${errorData.windowMinutes || 15} minutos</small>
+                `;
+                errorMessageDiv.style.display = 'block';
+                submitButton.disabled = true;
               } else {
-                // Outro erro (401, etc)
-                const errorData = await response.json().catch(() => ({}));
+                // Credenciais inválidas
+                const errorData = await retryResponse.json().catch(() => ({}));
                 const errorMessageDiv = document.getElementById('errorMessage');
                 errorMessageDiv.textContent = errorData.error || 'Usuário ou senha incorretos. Tente novamente.';
                 errorMessageDiv.style.display = 'block';
               }
+            } else {
+              // Outro erro (401, etc)
+              const errorData = await response.json().catch(() => ({}));
+              const errorMessageDiv = document.getElementById('errorMessage');
+              errorMessageDiv.textContent = errorData.error || 'Usuário ou senha incorretos. Tente novamente.';
+              errorMessageDiv.style.display = 'block';
             }
           } catch (error) {
             console.error('Erro no login:', error);

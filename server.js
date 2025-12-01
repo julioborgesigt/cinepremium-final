@@ -528,8 +528,38 @@ app.get('/login', (req, res) => {
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 5, // 5 tentativas de login
-  message: 'Muitas tentativas de login. Tente novamente em 15 minutos.',
-  skipSuccessfulRequests: true // Não conta logins bem-sucedidos
+  skipSuccessfulRequests: true, // Não conta logins bem-sucedidos
+  standardHeaders: true, // Retorna headers RateLimit-*
+  legacyHeaders: false, // Desabilita headers X-RateLimit-*
+  // Handler customizado para informar tempo de espera
+  handler: (req, res) => {
+    const retryAfter = req.rateLimit.resetTime; // Timestamp quando o limite é resetado
+    const now = Date.now();
+    const waitTimeMs = retryAfter - now;
+    const waitTimeMinutes = Math.ceil(waitTimeMs / 60000); // Converte para minutos
+    const waitTimeSeconds = Math.ceil(waitTimeMs / 1000); // Converte para segundos
+
+    // Mensagem amigável com tempo exato
+    let waitMessage;
+    if (waitTimeMinutes > 1) {
+      waitMessage = `${waitTimeMinutes} minutos`;
+    } else if (waitTimeSeconds > 60) {
+      waitMessage = `1 minuto`;
+    } else {
+      waitMessage = `${waitTimeSeconds} segundos`;
+    }
+
+    console.warn(`⚠️ [Rate Limit] Bloqueio de login para IP ${req.ip} - Aguardar ${waitMessage}`);
+
+    res.status(429).json({
+      error: 'Muitas tentativas de login',
+      message: `Você excedeu o limite de 5 tentativas de login. Por favor, aguarde ${waitMessage} antes de tentar novamente.`,
+      retryAfter: waitTimeSeconds, // Tempo em segundos
+      retryAfterMinutes: waitTimeMinutes, // Tempo em minutos
+      maxAttempts: 5,
+      windowMinutes: 15
+    });
+  }
 });
 
 // NOVO: Rate limiting para webhook (proteção contra replay attacks e DoS)
