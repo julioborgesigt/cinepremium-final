@@ -70,11 +70,27 @@ Todas as entradas de usuário são validadas no servidor:
 npm update node-forge  # Atualizado para versão >= 1.3.2
 ```
 
+**Resultado**: ✅ Vulnerabilidade HIGH eliminada
+
+---
+
+#### 2. ✅ Vulnerabilidade express CORRIGIDA
+**Status**: ✅ RESOLVIDO
+**Data**: 2025-12-01
+
+**Problema**: Dependência `express` <4.22.0 com vulnerabilidade LOW (GHSA-pj86-cfqh-vqx6)
+- express improperly controls modification of query properties
+
+**Solução Aplicada**:
+```bash
+npm audit fix  # express: 4.21.2 → 4.22.0
+```
+
 **Resultado**: ✅ `npm audit` agora reporta **0 vulnerabilidades**
 
 ---
 
-#### 2. ✅ Biblioteca csurf Deprecada SUBSTITUÍDA
+#### 3. ✅ Biblioteca csurf Deprecada SUBSTITUÍDA
 **Status**: ✅ RESOLVIDO
 **Data**: 2025-12-01
 
@@ -261,6 +277,15 @@ Antes de fazer deploy em produção, verifique:
 
 ## 🔄 Histórico de Atualizações
 
+### 2025-12-01 - Auditoria Sênior e Correções Críticas
+- ✅ **Auditoria completa de segurança realizada** (ver `AUDIT_REPORT_SENIOR_2025.md`)
+- ✅ **Vulnerabilidade node-forge corrigida** (HIGH → 0 vulnerabilities)
+- ✅ **Vulnerabilidade express corrigida** (LOW → 0 vulnerabilities)
+- ✅ **Biblioteca csurf deprecada substituída** por csrf-csrf
+- ✅ **Migração para double-submit CSRF pattern**
+- ✅ **Documentação webhook OndaPay** criada (ONDAPAY_WEBHOOK_SECURITY.md)
+- ✅ **npm audit: 0 vulnerabilidades**
+
 ### 2025-01-06
 - ✅ Implementado helmet.js
 - ✅ Implementado rate limiting (global e login)
@@ -273,12 +298,12 @@ Antes de fazer deploy em produção, verifique:
 - ✅ Documentação de segurança criada
 
 ### Próximas Melhorias Planejadas
-- [ ] Implementar verificação de assinatura no webhook
+- [ ] Implementar whitelist de IPs para webhook OndaPay (ALTA PRIORIDADE)
 - [ ] Migrar Firebase config do frontend para usar o endpoint do backend
-- [ ] Implementar hash de senha com bcrypt
 - [ ] Adicionar logs estruturados (Winston)
 - [ ] Implementar migrations do Sequelize
 - [ ] Adicionar testes automatizados
+- [ ] Refatorar server.js em arquitetura em camadas
 
 ---
 
@@ -289,5 +314,5 @@ Para questões gerais de segurança ou sugestões, entre em contato:
 
 ---
 
-**Última atualização**: 06/01/2025
-**Versão**: 2.0.0
+**Última atualização**: 01/12/2025
+**Versão**: 2.1.0
