@@ -253,7 +253,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Isso resolve problemas de vazamento de memória e permite scaling horizontal
 let redisClient;
 let sessionStore;
-let csrfProtection; // CORREÇÃO CRÍTICA #5: CSRF protection global
+let csrfProtection; // CSRF protection global
+let generateCsrfToken; // Função para gerar tokens CSRF
 
 // CORREÇÃO: Função async para inicializar Redis ANTES de configurar middlewares
 async function initializeRedis() {
@@ -787,11 +788,11 @@ app.get('/api/firebase-config', (req, res) => {
 // ATUALIZADO: Endpoint para obter CSRF token (csrf-csrf)
 app.get('/api/csrf-token', (req, res) => {
   try {
-    if (!global.generateCsrfToken) {
-      return res.status(503).json({ error: 'CSRF protection não inicializado' });
+    if (!generateCsrfToken) {
+      return res.status(503).json({ error: 'CSRF protection não inicializado. Aguarde inicialização do servidor.' });
     }
     // Gera token usando csrf-csrf
-    const csrfToken = global.generateCsrfToken(req, res);
+    const csrfToken = generateCsrfToken(req, res);
     res.json({ csrfToken });
   } catch (error) {
     console.error('[CSRF Token] Erro ao gerar token:', error);
@@ -1782,10 +1783,10 @@ async function startServer() {
       doubleCsrfProtection,
     } = doubleCsrf({
       getSecret: () => csrfSecret,
-      cookieName: '__Host-psifi.x-csrf-token',
+      cookieName: 'x-csrf-token', // Removido __Host- para compatibilidade com HTTP em dev
       cookieOptions: {
         httpOnly: true,
-        sameSite: 'strict',
+        sameSite: 'lax', // Mudado de strict para lax para permitir navegação
         secure: process.env.NODE_ENV === 'production',
         path: '/'
       },
@@ -1796,9 +1797,9 @@ async function startServer() {
       }
     });
 
-    // Exporta funções para uso global
+    // Exporta funções para uso nas rotas
     csrfProtection = doubleCsrfProtection;
-    global.generateCsrfToken = generateToken;
+    generateCsrfToken = generateToken;
 
     console.log('✅ CSRF protection configurado (csrf-csrf)');
 
