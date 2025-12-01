@@ -255,6 +255,7 @@ let redisClient;
 let sessionStore;
 let csrfProtection; // CSRF protection global
 let generateCsrfToken; // Função para gerar tokens CSRF
+let serverReady = false; // Flag para indicar que servidor está pronto
 
 // CORREÇÃO: Função async para inicializar Redis ANTES de configurar middlewares
 async function initializeRedis() {
@@ -788,8 +789,17 @@ app.get('/api/firebase-config', (req, res) => {
 // ATUALIZADO: Endpoint para obter CSRF token (csrf-csrf)
 app.get('/api/csrf-token', (req, res) => {
   try {
-    if (!generateCsrfToken) {
-      return res.status(503).json({ error: 'CSRF protection não inicializado. Aguarde inicialização do servidor.' });
+    // Verifica se servidor está pronto
+    if (!serverReady || !generateCsrfToken) {
+      console.warn('[CSRF Token] Servidor ainda inicializando...', {
+        serverReady,
+        hasGenerateToken: !!generateCsrfToken
+      });
+      return res.status(503).json({
+        error: 'Servidor ainda inicializando. Aguarde alguns segundos e tente novamente.',
+        ready: serverReady,
+        csrfReady: !!generateCsrfToken
+      });
     }
     // Gera token usando csrf-csrf
     const csrfToken = generateCsrfToken(req, res);
@@ -1813,7 +1823,11 @@ async function startServer() {
       console.log(`✅ Servidor rodando na porta ${PORT}`);
       console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🗄️  Sessões: ${sessionStore ? 'Redis (persistente)' : 'Memória (volátil)'}`);
+
+      // Marca servidor como pronto APENAS após tudo estar inicializado
+      serverReady = true;
       console.log('✨ Sistema pronto para receber requisições');
+      console.log('\n🎯 Você pode fazer login agora em: http://localhost:' + PORT + '/login\n');
     });
 
     // NOVO: Graceful shutdown para evitar connection leaks
