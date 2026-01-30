@@ -650,6 +650,178 @@
       cursor: not-allowed;
     }
 
+    /* Configurações de Pagamento */
+    .payment-settings-container {
+      background: #f8f9fa;
+      padding: 25px;
+      border-radius: 12px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .gateway-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .gateway-card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      border: 2px solid #e0e0e0;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+
+    .gateway-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+    }
+
+    .gateway-card.active {
+      border-color: #28a745;
+      background: linear-gradient(to bottom, #d4edda 0%, white 100%);
+    }
+
+    .gateway-card.active::before {
+      content: '✓ ATIVO';
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: #28a745;
+      color: white;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .gateway-card {
+      position: relative;
+    }
+
+    .gateway-card.not-configured {
+      opacity: 0.6;
+      border-color: #dc3545;
+    }
+
+    .gateway-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 15px;
+    }
+
+    .gateway-icon {
+      font-size: 2rem;
+    }
+
+    .gateway-header h3 {
+      margin: 0;
+      color: #2c3e50;
+      font-size: 1.25rem;
+    }
+
+    .gateway-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 15px;
+      font-size: 0.9rem;
+      color: #6c757d;
+    }
+
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .status-indicator.configured {
+      background: #28a745;
+    }
+
+    .status-indicator.not-configured {
+      background: #dc3545;
+    }
+
+    .status-indicator.loading {
+      background: #ffc107;
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .gateway-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .gateway-select-btn {
+      flex: 1;
+      padding: 10px 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+
+    .gateway-select-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .gateway-select-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .gateway-test-btn {
+      padding: 10px 16px;
+      background: #f8f9fa;
+      color: #495057;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+
+    .gateway-test-btn:hover {
+      background: #e9ecef;
+      border-color: #667eea;
+    }
+
+    .current-gateway-info {
+      background: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      border: 2px solid #28a745;
+      text-align: center;
+      font-size: 1.1rem;
+    }
+
+    .current-gateway-info strong {
+      color: #2c3e50;
+    }
+
+    #activeGatewayName {
+      color: #28a745;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
     /* Responsividade */
     @media (max-width: 768px) {
       body {
@@ -741,6 +913,59 @@
       <h2 class="section-title">📈 Dashboard</h2>
       <div class="stats-grid" id="statsGrid">
         <!-- Cards de estatísticas serão inseridos aqui via JavaScript -->
+      </div>
+    </div>
+
+    <!-- Seção: Configurações de Pagamento (Colapsável) -->
+    <div class="collapsible-section">
+      <div class="collapse-header" id="paymentCollapseHeader">
+        <h2>💳 Configurações de Pagamento</h2>
+        <div class="collapse-toggle" id="paymentToggle">▼</div>
+      </div>
+      <div class="collapse-content" id="paymentCollapseContent">
+        <div class="section">
+          <div class="payment-settings-container">
+            <p style="color: #7f8c8d; margin-bottom: 20px;">Selecione o gateway de pagamento que será usado para processar os pagamentos PIX.</p>
+
+            <div class="gateway-grid" id="gatewayGrid">
+              <!-- Gateway OndaPay -->
+              <div class="gateway-card" id="gatewayOndapay" data-gateway="ondapay">
+                <div class="gateway-header">
+                  <span class="gateway-icon">🌊</span>
+                  <h3>OndaPay</h3>
+                </div>
+                <div class="gateway-status" id="ondapayStatus">
+                  <span class="status-indicator loading"></span>
+                  <span>Verificando...</span>
+                </div>
+                <div class="gateway-actions">
+                  <button class="gateway-select-btn" onclick="selectGateway('ondapay')">Selecionar</button>
+                  <button class="gateway-test-btn" onclick="testGateway('ondapay')">Testar</button>
+                </div>
+              </div>
+
+              <!-- Gateway AbacatePay -->
+              <div class="gateway-card" id="gatewayAbacatepay" data-gateway="abacatepay">
+                <div class="gateway-header">
+                  <span class="gateway-icon">🥑</span>
+                  <h3>AbacatePay</h3>
+                </div>
+                <div class="gateway-status" id="abacatepayStatus">
+                  <span class="status-indicator loading"></span>
+                  <span>Verificando...</span>
+                </div>
+                <div class="gateway-actions">
+                  <button class="gateway-select-btn" onclick="selectGateway('abacatepay')">Selecionar</button>
+                  <button class="gateway-test-btn" onclick="testGateway('abacatepay')">Testar</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="current-gateway-info" id="currentGatewayInfo">
+              <strong>Gateway Ativo:</strong> <span id="activeGatewayName">Carregando...</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1601,7 +1826,146 @@
           collapseToggle.classList.add('open');
         }
       });
+
+      // Collapse para "Configurações de Pagamento"
+      const paymentHeader = document.getElementById('paymentCollapseHeader');
+      const paymentContent = document.getElementById('paymentCollapseContent');
+      const paymentToggle = document.getElementById('paymentToggle');
+
+      if (paymentHeader && paymentContent && paymentToggle) {
+        paymentHeader.addEventListener('click', () => {
+          const isOpen = paymentContent.classList.contains('open');
+
+          if (isOpen) {
+            paymentContent.classList.remove('open');
+            paymentToggle.classList.remove('open');
+          } else {
+            paymentContent.classList.add('open');
+            paymentToggle.classList.add('open');
+          }
+        });
+      }
     }
+
+    // --- FUNÇÕES DE CONFIGURAÇÃO DE PAGAMENTO ---
+
+    // Carrega as configurações de pagamento
+    async function loadPaymentSettings() {
+      try {
+        const response = await authenticatedFetch('/api/payment-settings');
+        const settings = await response.json();
+
+        // Atualiza o nome do gateway ativo
+        const activeGatewayName = document.getElementById('activeGatewayName');
+        if (activeGatewayName) {
+          activeGatewayName.textContent = settings.activeGateway === 'ondapay' ? 'OndaPay 🌊' : 'AbacatePay 🥑';
+        }
+
+        // Atualiza cards dos gateways
+        updateGatewayCard('ondapay', settings.gateways.ondapay, settings.activeGateway === 'ondapay');
+        updateGatewayCard('abacatepay', settings.gateways.abacatepay, settings.activeGateway === 'abacatepay');
+
+      } catch (error) {
+        if (error.message !== 'Sessão expirada') {
+          console.error('Erro ao carregar configurações de pagamento:', error);
+        }
+      }
+    }
+
+    // Atualiza o visual de um card de gateway
+    function updateGatewayCard(gateway, config, isActive) {
+      const card = document.getElementById(`gateway${gateway.charAt(0).toUpperCase() + gateway.slice(1)}`);
+      const statusDiv = document.getElementById(`${gateway}Status`);
+
+      if (!card || !statusDiv) return;
+
+      // Remove classes anteriores
+      card.classList.remove('active', 'not-configured');
+
+      // Status de configuração
+      if (config.configured) {
+        statusDiv.innerHTML = `<span class="status-indicator configured"></span><span>Configurado</span>`;
+      } else {
+        statusDiv.innerHTML = `<span class="status-indicator not-configured"></span><span>Não configurado</span>`;
+        card.classList.add('not-configured');
+      }
+
+      // Se é o gateway ativo
+      if (isActive) {
+        card.classList.add('active');
+      }
+
+      // Desabilita botão de selecionar se não estiver configurado ou se já for o ativo
+      const selectBtn = card.querySelector('.gateway-select-btn');
+      if (selectBtn) {
+        selectBtn.disabled = !config.configured || isActive;
+        selectBtn.textContent = isActive ? 'Ativo' : 'Selecionar';
+      }
+    }
+
+    // Seleciona um gateway como ativo
+    async function selectGateway(gateway) {
+      if (!confirm(`Deseja alterar o gateway de pagamento para ${gateway === 'ondapay' ? 'OndaPay' : 'AbacatePay'}?\n\nNovos pagamentos serão processados pelo gateway selecionado.`)) {
+        return;
+      }
+
+      try {
+        const response = await authenticatedFetch('/api/payment-settings/gateway', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gateway })
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+          showToast(`✅ ${result.message}`, 'success');
+          await loadPaymentSettings(); // Recarrega os cards
+        } else {
+          showToast(`❌ ${result.error || 'Erro ao alterar gateway'}`, 'error');
+        }
+      } catch (error) {
+        if (error.message !== 'Sessão expirada') {
+          console.error('Erro ao selecionar gateway:', error);
+          showToast('❌ Erro ao alterar gateway de pagamento', 'error');
+        }
+      }
+    }
+
+    // Testa a conexão com um gateway
+    async function testGateway(gateway) {
+      const testBtn = document.querySelector(`#gateway${gateway.charAt(0).toUpperCase() + gateway.slice(1)} .gateway-test-btn`);
+      const originalText = testBtn.textContent;
+
+      try {
+        testBtn.textContent = '⏳ Testando...';
+        testBtn.disabled = true;
+
+        const response = await authenticatedFetch('/api/payment-settings/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gateway })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          showToast(`✅ ${result.message}`, 'success');
+        } else {
+          showToast(`❌ ${result.message}`, 'error');
+        }
+      } catch (error) {
+        if (error.message !== 'Sessão expirada') {
+          console.error('Erro ao testar gateway:', error);
+          showToast('❌ Erro ao testar conexão com gateway', 'error');
+        }
+      } finally {
+        testBtn.textContent = originalText;
+        testBtn.disabled = false;
+      }
+    }
+
+    // --- FIM DAS FUNÇÕES DE CONFIGURAÇÃO DE PAGAMENTO ---
 
     // Carrega estatísticas do dashboard
     async function loadStatistics() {
@@ -1710,6 +2074,7 @@
     window.onload = () => {
       initializeCollapse();
       loadStatistics();
+      loadPaymentSettings();
       loadProducts();
       carregarMesAno();
       loadHistory();
