@@ -1095,15 +1095,24 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
 
       if (activeGateway === 'abacatepay') {
         // --- ABACATEPAY ---
+        // Limita description a 37 caracteres (limite da AbacatePay)
+        let abacateDescription = productTitle || 'Pagamento';
+        if (abacateDescription.length > 37) {
+          abacateDescription = abacateDescription.substring(0, 34) + '...';
+        }
+
+        // Formata telefone: remove caracteres não numéricos
+        const cleanPhone = telefone.replace(/\D/g, '');
+
         const abacatePayload = {
           amount: value, // AbacatePay espera valor em centavos
           expiresIn: 1800, // 30 minutos em segundos
-          description: `${productTitle} - ${productDescription || ''}`,
+          description: abacateDescription,
           customer: {
             name: nome,
-            cellphone: telefone.replace(/\D/g, ''),
+            cellphone: cleanPhone,
             email: sanitizedEmail,
-            taxId: cpf.replace(/\D/g, '')
+            taxId: cpf.replace(/\D/g, '') // CPF apenas números
           },
           metadata: {
             external_id: purchaseRecord.id.toString(),
@@ -1112,17 +1121,21 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         };
 
         console.log('[GERARQRCODE] 📤 Enviando para AbacatePay...');
+        console.log('[GERARQRCODE] 📦 Payload:', JSON.stringify(abacatePayload, null, 2));
+
         const abacateResponse = await createAbacatePayPixQRCode(abacatePayload);
 
         // AbacatePay retorna: { data: { id, brCode, brCodeBase64, status, ... } }
         const abacateData = abacateResponse.data || abacateResponse;
         transactionIdResult = abacateData.id;
         qrCodeResult = abacateData.brCode;
+        // AbacatePay retorna base64 puro, precisa adicionar prefixo para exibição
         qrCodeBase64Result = abacateData.brCodeBase64;
 
         console.log('[GERARQRCODE] 📦 Resposta da AbacatePay recebida:');
         console.log(`  - Transaction ID: ${transactionIdResult}`);
         console.log(`  - QR Code gerado: ${qrCodeResult ? 'Sim' : 'Não'}`);
+        console.log(`  - Base64 presente: ${qrCodeBase64Result ? 'Sim' : 'Não'}`);
       } else {
         // --- ONDAPAY (padrão) ---
         const ondaPayload = {
@@ -1216,16 +1229,29 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
 
     // Log completo apenas no servidor (não exposto ao cliente)
     if (error.response && error.response.data) {
-      console.error("❌ Erro da API OndaPay:", error.response.data);
+      const apiError = error.response.data;
+      console.error("❌ Erro da API de pagamento:", JSON.stringify(apiError, null, 2));
+      console.error("❌ Status HTTP:", error.response.status);
 
-      // CORREÇÃO: Só expõe detalhes em desenvolvimento
-      if (process.env.NODE_ENV !== 'production') {
-        if (error.response.data.msg) {
-          errorMessage = Object.values(error.response.data.msg)[0];
+      // Tratamento para AbacatePay
+      if (apiError.error) {
+        console.error("❌ Mensagem AbacatePay:", apiError.error);
+        // Em desenvolvimento, mostra o erro específico
+        if (process.env.NODE_ENV !== 'production') {
+          errorMessage = apiError.error;
+        }
+      }
+
+      // Tratamento para OndaPay
+      if (apiError.msg) {
+        console.error("❌ Mensagem OndaPay:", apiError.msg);
+        if (process.env.NODE_ENV !== 'production') {
+          errorMessage = Object.values(apiError.msg)[0];
         }
       }
     } else {
       console.error("❌ Erro ao gerar QR code:", error.message);
+      console.error("❌ Stack:", error.stack);
     }
 
     res.status(400).json({ error: errorMessage });
