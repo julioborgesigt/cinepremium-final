@@ -1224,37 +1224,47 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
       throw transactionError; // Re-lança para o catch externo tratar
     }
   } catch (error) {
-    // CORREÇÃO: Não expõe detalhes internos em produção
+    // Captura detalhes do erro para diagnóstico
     let errorMessage = "Erro ao gerar QR code. Tente novamente.";
+    let errorDetails = null;
+    let errorCode = null;
 
-    // Log completo apenas no servidor (não exposto ao cliente)
+    // Log completo no servidor
     if (error.response && error.response.data) {
       const apiError = error.response.data;
       console.error("❌ Erro da API de pagamento:", JSON.stringify(apiError, null, 2));
       console.error("❌ Status HTTP:", error.response.status);
+      errorCode = error.response.status;
+      errorDetails = apiError;
 
       // Tratamento para AbacatePay
       if (apiError.error) {
-        console.error("❌ Mensagem AbacatePay:", apiError.error);
-        // Em desenvolvimento, mostra o erro específico
-        if (process.env.NODE_ENV !== 'production') {
-          errorMessage = apiError.error;
-        }
+        errorMessage = `[AbacatePay] ${apiError.error}`;
       }
 
       // Tratamento para OndaPay
       if (apiError.msg) {
-        console.error("❌ Mensagem OndaPay:", apiError.msg);
-        if (process.env.NODE_ENV !== 'production') {
-          errorMessage = Object.values(apiError.msg)[0];
-        }
+        const msgValue = typeof apiError.msg === 'object' ? Object.values(apiError.msg)[0] : apiError.msg;
+        errorMessage = `[OndaPay] ${msgValue}`;
+      }
+
+      // Se não há mensagem específica mas tem message
+      if (!apiError.error && !apiError.msg && apiError.message) {
+        errorMessage = apiError.message;
       }
     } else {
       console.error("❌ Erro ao gerar QR code:", error.message);
       console.error("❌ Stack:", error.stack);
+      errorMessage = error.message || errorMessage;
     }
 
-    res.status(400).json({ error: errorMessage });
+    // Retorna erro com detalhes para o frontend (útil para debug)
+    res.status(400).json({
+      error: errorMessage,
+      details: errorDetails,
+      httpCode: errorCode,
+      gateway: cachedActiveGateway || 'desconhecido'
+    });
   }
 });
 
