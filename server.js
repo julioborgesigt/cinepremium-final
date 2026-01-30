@@ -967,7 +967,21 @@ async function getCiabraInvoiceDetails(invoiceId) {
 
     return response.data;
   } catch (error) {
-    console.error('[CIABRA] Erro ao obter detalhes:', error.response?.data || error.message);
+    console.error('[CIABRA] ===== ERRO AO OBTER DETALHES DO INVOICE =====');
+    console.error('[CIABRA] Error message:', error.message);
+    console.error('[CIABRA] Error stack:', error.stack);
+    
+    if (error.response) {
+      console.error('[CIABRA] HTTP Status:', error.response.status);
+      console.error('[CIABRA] Response data:', JSON.stringify(error.response.data, null, 2));
+      console.error('[CIABRA] Response headers:', JSON.stringify(error.response.headers, null, 2));
+    } else if (error.request) {
+      console.error('[CIABRA] No response received. Request:', error.request);
+    } else {
+      console.error('[CIABRA] Error setting up request:', error.message);
+    }
+    console.error('[CIABRA] ====================================================');
+    
     throw error;
   }
 }
@@ -1388,10 +1402,16 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         
         // CORREÇÃO: Buscar detalhes completos do invoice para obter dados do PIX
         console.log('[CIABRA DEBUG] Buscando detalhes completos do invoice...');
-        const invoiceDetails = await getCiabraInvoiceDetails(transactionIdResult);
-        console.log('[CIABRA DEBUG] ====== DETALHES DO INVOICE ======');
-        console.log(JSON.stringify(invoiceDetails, null, 2));
-        console.log('[CIABRA DEBUG] ==================================');
+        let invoiceDetails = ciabraResponse; // Fallback para resposta inicial
+        try {
+          invoiceDetails = await getCiabraInvoiceDetails(transactionIdResult);
+          console.log('[CIABRA DEBUG] ====== DETALHES DO INVOICE ======');
+          console.log(JSON.stringify(invoiceDetails, null, 2));
+          console.log('[CIABRA DEBUG] ==================================');
+        } catch (detailsError) {
+          console.error('[CIABRA DEBUG] Erro ao buscar detalhes, usando resposta inicial');
+          console.error('[CIABRA DEBUG] Erro:', detailsError.message);
+        }
 
         // CORREÇÃO: Usar invoiceDetails que tem os dados completos do PIX
         // Verificar diversos campos possíveis na estrutura de installments/payments
