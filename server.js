@@ -1385,24 +1385,31 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         // CIABRA retorna o invoice com ID
         const invoiceData = ciabraResponse;
         transactionIdResult = invoiceData.id;
+        
+        // CORREÇÃO: Buscar detalhes completos do invoice para obter dados do PIX
+        console.log('[CIABRA DEBUG] Buscando detalhes completos do invoice...');
+        const invoiceDetails = await getCiabraInvoiceDetails(transactionIdResult);
+        console.log('[CIABRA DEBUG] ====== DETALHES DO INVOICE ======');
+        console.log(JSON.stringify(invoiceDetails, null, 2));
+        console.log('[CIABRA DEBUG] ==================================');
 
-        // CIABRA pode retornar o código PIX copia-cola (não necessariamente imagem)
-        // Verificar diversos campos possíveis
-        if (invoiceData.installments && invoiceData.installments.length > 0) {
-          const installment = invoiceData.installments[0];
+        // CORREÇÃO: Usar invoiceDetails que tem os dados completos do PIX
+        // Verificar diversos campos possíveis na estrutura de installments/payments
+        if (invoiceDetails.installments && invoiceDetails.installments.length > 0) {
+          const installment = invoiceDetails.installments[0];
           if (installment.payments && installment.payments.length > 0) {
             const payment = installment.payments[0];
-            qrCodeResult = payment.pixCode || payment.qrCode || payment.code || payment.copyPaste || payment.brCode;
-            qrCodeBase64Result = payment.qrCodeBase64 || payment.pixQrCodeBase64 || payment.qrCodeImage;
+            qrCodeResult = payment.pixCode || payment.qrCode || payment.code || payment.copyPaste || payment.brCode || payment.emv;
+            qrCodeBase64Result = payment.qrCodeBase64 || payment.pixQrCodeBase64 || payment.qrCodeImage || payment.base64;
           }
         }
 
-        // Verificar campos alternativos na raiz
+        // Verificar campos alternativos na raiz do invoiceDetails
         if (!qrCodeResult) {
-          qrCodeResult = invoiceData.pixCode || invoiceData.copyPaste || invoiceData.brCode || invoiceData.pix?.code || invoiceData.pix?.copyPaste;
+          qrCodeResult = invoiceDetails.pixCode || invoiceDetails.copyPaste || invoiceDetails.brCode || invoiceDetails.pix?.code || invoiceDetails.pix?.copyPaste || invoiceDetails.pix?.emv;
         }
         if (!qrCodeBase64Result) {
-          qrCodeBase64Result = invoiceData.pixQrCodeBase64 || invoiceData.qrCodeImage || invoiceData.pix?.qrCode;
+          qrCodeBase64Result = invoiceDetails.pixQrCodeBase64 || invoiceDetails.qrCodeImage || invoiceDetails.pix?.qrCode || invoiceDetails.pix?.base64;
         }
 
         console.log('[CIABRA DEBUG] Resultado extraído:');
