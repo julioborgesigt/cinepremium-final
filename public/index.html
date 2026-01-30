@@ -733,7 +733,12 @@ document.getElementById('generateBtn').addEventListener('click', async function(
     if (!response.ok) {
       const errorData = await response.json().catch(() => response.text());
       // LOG 3: Mostra o erro exato vindo do servidor
-      console.error('[Página de Venda] O servidor retornou um erro:', errorData);
+      console.error('[Página de Venda] ❌ ERRO DO SERVIDOR:');
+      console.error('  - Mensagem:', errorData.error);
+      console.error('  - Gateway:', errorData.gateway);
+      console.error('  - Código HTTP:', errorData.httpCode);
+      console.error('  - Detalhes completos:', JSON.stringify(errorData.details, null, 2));
+      console.error('  - Resposta completa:', errorData);
       const errorMessage = errorData.error || (errorData.msg && Object.values(errorData.msg)[0]) || 'Ocorreu um erro desconhecido.';
       throw new Error(errorMessage);
     }
