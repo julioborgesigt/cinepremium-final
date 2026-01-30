@@ -1032,24 +1032,83 @@ async function generateCiabraPixWithAutomation(installmentId) {
     const paymentUrl = `https://pagar.ciabra.com.br/i/${installmentId}`;
     console.log('[CIABRA AUTOMATION] Acessando:', paymentUrl);
     await page.goto(paymentUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+    console.log('[CIABRA AUTOMATION] Página carregada com sucesso');
     
-    // Aguardar e clicar no botão PIX
-    console.log('[CIABRA AUTOMATION] Aguardando botão PIX...');
-    await page.waitForSelector('button:has-text("PIX")', { timeout: 10000 });
-    await page.click('button:has-text("PIX")');
+    // Tirar screenshot para debug
+    const screenshotPath = `/tmp/ciabra_${installmentId}_1.png`;
+    await page.screenshot({ path: screenshotPath });
+    console.log('[CIABRA AUTOMATION] Screenshot salvo:', screenshotPath);
+    
+    // Listar todos os botões na página
+    const buttons = await page.$$eval('button', btns => btns.map(b => ({
+      text: b.textContent.trim(),
+      html: b.innerHTML
+    })));
+    console.log('[CIABRA AUTOMATION] Botões encontrados:', JSON.stringify(buttons, null, 2));
+    
+    // Tentar encontrar botão PIX de várias formas
+    console.log('[CIABRA AUTOMATION] Procurando botão PIX...');
+    let pixButton = null;
+    
+    // Método 1: XPath com texto
+    try {
+      const pixButtons = await page.$x("//button[contains(text(), 'PIX')]");
+      if (pixButtons.length > 0) {
+        pixButton = pixButtons[0];
+        console.log('[CIABRA AUTOMATION] Botão PIX encontrado via XPath');
+      }
+    } catch (e) {
+      console.log('[CIABRA AUTOMATION] Método XPath falhou:', e.message);
+    }
+    
+    if (!pixButton) {
+      throw new Error('Botão PIX não encontrado na página');
+    }
+    
+    // Clicar no botão PIX
+    await pixButton.click();
     console.log('[CIABRA AUTOMATION] Clicou em PIX');
     
     // Aguardar um pouco para o botão Pagar aparecer
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
     
-    // Aguardar e clicar no botão Pagar
-    console.log('[CIABRA AUTOMATION] Aguardando botão Pagar...');
-    await page.waitForSelector('button:has-text("Pagar")', { timeout: 10000 });
-    await page.click('button:has-text("Pagar")');
+    // Tirar screenshot após clicar em PIX
+    const screenshotPath2 = `/tmp/ciabra_${installmentId}_2.png`;
+    await page.screenshot({ path: screenshotPath2 });
+    console.log('[CIABRA AUTOMATION] Screenshot após PIX:', screenshotPath2);
+    
+    // Listar botões novamente
+    const buttons2 = await page.$$eval('button', btns => btns.map(b => ({
+      text: b.textContent.trim(),
+      html: b.innerHTML
+    })));
+    console.log('[CIABRA AUTOMATION] Botões após clicar em PIX:', JSON.stringify(buttons2, null, 2));
+    
+    // Procurar botão Pagar
+    console.log('[CIABRA AUTOMATION] Procurando botão Pagar...');
+    let pagarButton = null;
+    
+    try {
+      const pagarButtons = await page.$x("//button[contains(text(), 'Pagar')]");
+      if (pagarButtons.length > 0) {
+        pagarButton = pagarButtons[0];
+        console.log('[CIABRA AUTOMATION] Botão Pagar encontrado via XPath');
+      }
+    } catch (e) {
+      console.log('[CIABRA AUTOMATION] Método XPath para Pagar falhou:', e.message);
+    }
+    
+    if (!pagarButton) {
+      throw new Error('Botão Pagar não encontrado na página');
+    }
+    
+    // Clicar no botão Pagar
+    await pagarButton.click();
     console.log('[CIABRA AUTOMATION] Clicou em Pagar');
     
     // Aguardar a resposta ser capturada
-    await page.waitForTimeout(3000);
+    console.log('[CIABRA AUTOMATION] Aguardando resposta do pagamento...');
+    await page.waitForTimeout(5000);
     
     if (!pixPaymentData) {
       throw new Error('Não foi possível capturar dados do pagamento PIX');
