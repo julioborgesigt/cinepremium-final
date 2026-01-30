@@ -34,6 +34,10 @@ const app = express();
 const debugLogs = [];
 const MAX_DEBUG_LOGS = 1000;
 
+// Map para armazenar códigos PIX temporariamente (installmentId -> pixData)
+const pixCodesCache = new Map();
+const PIX_CACHE_TTL = 10 * 60 * 1000; // 10 minutos
+
 function addDebugLog(message) {
   const timestamp = new Date().toISOString();
   const logEntry = `[${timestamp}] ${message}`;
@@ -1587,13 +1591,34 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
           console.log('[CIABRA DEBUG] InstallmentId encontrado:', installmentId);
           
           try {
-            // Gerar pagamento PIX usando automação
-            pixPaymentData = await generateCiabraPixWithAutomation(installmentId);
-            console.log('[CIABRA DEBUG] ====== PAGAMENTO PIX GERADO ======');
-            console.log(JSON.stringify(pixPaymentData, null, 2));
-            console.log('[CIABRA DEBUG] ==================================');
+            // Aguardar webhook PAYMENT_GENERATED do CIABRA
+            console.log('[CIABRA DEBUG] Aguardando webhook PAYMENT_GENERATED...');
+            
+            // Aguardar até 30 segundos pelo webhook
+            const maxWaitTime = 30000; // 30 segundos
+            const checkInterval = 500; // Verificar a cada 500ms
+            let elapsed = 0;
+            
+            while (elapsed < maxWaitTime) {
+              if (pixCodesCache.has(installmentId)) {
+                const cachedData = pixCodesCache.get(installmentId);
+                pixPaymentData = cachedData.payment;
+                console.log('[CIABRA DEBUG] ====== CÓDIGO PIX RECEBIDO VIA WEBHOOK ======');
+                console.log(JSON.stringify(pixPaymentData, null, 2));
+                console.log('[CIABRA DEBUG] ==========================================');
+                break;
+              }
+              
+              // Aguardar antes de verificar novamente
+              await new Promise(resolve => setTimeout(resolve, checkInterval));
+              elapsed += checkInterval;
+            }
+            
+            if (!pixPaymentData) {
+              console.warn('[CIABRA DEBUG] Timeout: Webhook PAYMENT_GENERATED não recebido em 30s');
+            }
           } catch (pixError) {
-            console.error('[CIABRA DEBUG] Erro ao gerar pagamento PIX com automação');
+            console.error('[CIABRA DEBUG] Erro ao aguardar webhook');
             console.error('[CIABRA DEBUG] Erro:', pixError.message);
             console.error('[CIABRA DEBUG] Stack:', pixError.stack);
           }
@@ -2010,6 +2035,42 @@ app.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
     }
 
     console.log(`[CIABRA WEBHOOK] 📊 Evento: ${hookType}`);
+
+    // Capturar evento PAYMENT_GENERATED para armazenar código PIX
+    if (hookType === 'PAYMENT_GENERATED') {
+      console.log('[CIABRA WEBHOOK] 🔑 Evento PAYMENT_GENERATED recebido!');
+      
+      if (payment && installment) {
+        const installmentId = installment.id;
+        const pixCode = payment.emv;
+        
+        console.log(`[CIABRA WEBHOOK] 📊 InstallmentId: ${installmentId}`);
+        console.log(`[CIABRA WEBHOOK] 📊 PIX Code: ${pixCode ? pixCode.substring(0, 50) + '...' : 'N/A'}`);
+        
+        if (pixCode && installmentId) {
+          // Armazenar código PIX no cache
+          pixCodesCache.set(installmentId, {
+            emv: pixCode,
+            payment: payment,
+            timestamp: Date.now()
+          });
+          
+          console.log(`[CIABRA WEBHOOK] ✅ Código PIX armazenado para installment ${installmentId}`);
+          
+          // Limpar cache antigo (TTL)
+          setTimeout(() => {
+            if (pixCodesCache.has(installmentId)) {
+              pixCodesCache.delete(installmentId);
+              console.log(`[CIABRA WEBHOOK] 🗑️ Cache expirado para installment ${installmentId}`);
+            }
+          }, PIX_CACHE_TTL);
+        } else {
+          console.warn('[CIABRA WEBHOOK] ⚠️ Código PIX ou installmentId não encontrado no webhook');
+        }
+      }
+      
+      return res.status(200).json({ status: 'pix_stored' });
+    }
 
     // Verifica se é um evento de pagamento confirmado
     if (hookType !== 'PAYMENT_CONFIRMED') {
