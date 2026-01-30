@@ -30,6 +30,20 @@ const validator = require('validator');
 
 const app = express();
 
+// Array global para armazenar logs de debug
+const debugLogs = [];
+const MAX_DEBUG_LOGS = 1000;
+
+function addDebugLog(message) {
+  const timestamp = new Date().toISOString();
+  const logEntry = `[${timestamp}] ${message}`;
+  debugLogs.push(logEntry);
+  if (debugLogs.length > MAX_DEBUG_LOGS) {
+    debugLogs.shift(); // Remove o mais antigo
+  }
+  console.log(logEntry);
+}
+
 // ============================================
 // VALIDAÇÕES CRÍTICAS DE SEGURANÇA
 // ============================================
@@ -991,7 +1005,7 @@ async function getCiabraInvoiceDetails(invoiceId) {
 async function generateCiabraPixWithAutomation(installmentId) {
   let browser = null;
   try {
-    console.log('[CIABRA AUTOMATION] Iniciando automação para installment:', installmentId);
+    addDebugLog('[CIABRA AUTOMATION] Iniciando automação para installment:', installmentId);
     
     // Lançar navegador headless
     browser = await puppeteer.launch({
@@ -1020,34 +1034,34 @@ async function generateCiabraPixWithAutomation(installmentId) {
       if (url.includes('/api/payments/pix')) {
         try {
           const data = await response.json();
-          console.log('[CIABRA AUTOMATION] Capturado resposta do PIX:', JSON.stringify(data, null, 2));
+          addDebugLog('[CIABRA AUTOMATION] Capturado resposta do PIX:', JSON.stringify(data, null, 2));
           pixPaymentData = data;
         } catch (e) {
-          console.error('[CIABRA AUTOMATION] Erro ao parsear resposta:', e.message);
+          addDebugLog('[CIABRA AUTOMATION] Erro ao parsear resposta:', e.message);
         }
       }
     });
     
     // Acessar página de pagamento
     const paymentUrl = `https://pagar.ciabra.com.br/i/${installmentId}`;
-    console.log('[CIABRA AUTOMATION] Acessando:', paymentUrl);
+    addDebugLog('[CIABRA AUTOMATION] Acessando:', paymentUrl);
     await page.goto(paymentUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-    console.log('[CIABRA AUTOMATION] Página carregada com sucesso');
+    addDebugLog('[CIABRA AUTOMATION] Página carregada com sucesso');
     
     // Tirar screenshot para debug
     const screenshotPath = `/tmp/ciabra_${installmentId}_1.png`;
     await page.screenshot({ path: screenshotPath });
-    console.log('[CIABRA AUTOMATION] Screenshot salvo:', screenshotPath);
+    addDebugLog('[CIABRA AUTOMATION] Screenshot salvo:', screenshotPath);
     
     // Listar todos os botões na página
     const buttons = await page.$$eval('button', btns => btns.map(b => ({
       text: b.textContent.trim(),
       html: b.innerHTML
     })));
-    console.log('[CIABRA AUTOMATION] Botões encontrados:', JSON.stringify(buttons, null, 2));
+    addDebugLog('[CIABRA AUTOMATION] Botões encontrados:', JSON.stringify(buttons, null, 2));
     
     // Tentar encontrar botão PIX de várias formas
-    console.log('[CIABRA AUTOMATION] Procurando botão PIX...');
+    addDebugLog('[CIABRA AUTOMATION] Procurando botão PIX...');
     let pixButton = null;
     
     // Método 1: XPath com texto
@@ -1055,10 +1069,10 @@ async function generateCiabraPixWithAutomation(installmentId) {
       const pixButtons = await page.$x("//button[contains(text(), 'PIX')]");
       if (pixButtons.length > 0) {
         pixButton = pixButtons[0];
-        console.log('[CIABRA AUTOMATION] Botão PIX encontrado via XPath');
+        addDebugLog('[CIABRA AUTOMATION] Botão PIX encontrado via XPath');
       }
     } catch (e) {
-      console.log('[CIABRA AUTOMATION] Método XPath falhou:', e.message);
+      addDebugLog('[CIABRA AUTOMATION] Método XPath falhou:', e.message);
     }
     
     if (!pixButton) {
@@ -1067,7 +1081,7 @@ async function generateCiabraPixWithAutomation(installmentId) {
     
     // Clicar no botão PIX
     await pixButton.click();
-    console.log('[CIABRA AUTOMATION] Clicou em PIX');
+    addDebugLog('[CIABRA AUTOMATION] Clicou em PIX');
     
     // Aguardar um pouco para o botão Pagar aparecer
     await page.waitForTimeout(2000);
@@ -1075,27 +1089,27 @@ async function generateCiabraPixWithAutomation(installmentId) {
     // Tirar screenshot após clicar em PIX
     const screenshotPath2 = `/tmp/ciabra_${installmentId}_2.png`;
     await page.screenshot({ path: screenshotPath2 });
-    console.log('[CIABRA AUTOMATION] Screenshot após PIX:', screenshotPath2);
+    addDebugLog('[CIABRA AUTOMATION] Screenshot após PIX:', screenshotPath2);
     
     // Listar botões novamente
     const buttons2 = await page.$$eval('button', btns => btns.map(b => ({
       text: b.textContent.trim(),
       html: b.innerHTML
     })));
-    console.log('[CIABRA AUTOMATION] Botões após clicar em PIX:', JSON.stringify(buttons2, null, 2));
+    addDebugLog('[CIABRA AUTOMATION] Botões após clicar em PIX:', JSON.stringify(buttons2, null, 2));
     
     // Procurar botão Pagar
-    console.log('[CIABRA AUTOMATION] Procurando botão Pagar...');
+    addDebugLog('[CIABRA AUTOMATION] Procurando botão Pagar...');
     let pagarButton = null;
     
     try {
       const pagarButtons = await page.$x("//button[contains(text(), 'Pagar')]");
       if (pagarButtons.length > 0) {
         pagarButton = pagarButtons[0];
-        console.log('[CIABRA AUTOMATION] Botão Pagar encontrado via XPath');
+        addDebugLog('[CIABRA AUTOMATION] Botão Pagar encontrado via XPath');
       }
     } catch (e) {
-      console.log('[CIABRA AUTOMATION] Método XPath para Pagar falhou:', e.message);
+      addDebugLog('[CIABRA AUTOMATION] Método XPath para Pagar falhou:', e.message);
     }
     
     if (!pagarButton) {
@@ -1104,21 +1118,21 @@ async function generateCiabraPixWithAutomation(installmentId) {
     
     // Clicar no botão Pagar
     await pagarButton.click();
-    console.log('[CIABRA AUTOMATION] Clicou em Pagar');
+    addDebugLog('[CIABRA AUTOMATION] Clicou em Pagar');
     
     // Aguardar a resposta ser capturada
-    console.log('[CIABRA AUTOMATION] Aguardando resposta do pagamento...');
+    addDebugLog('[CIABRA AUTOMATION] Aguardando resposta do pagamento...');
     await page.waitForTimeout(5000);
     
     if (!pixPaymentData) {
       throw new Error('Não foi possível capturar dados do pagamento PIX');
     }
     
-    console.log('[CIABRA AUTOMATION] Pagamento PIX gerado com sucesso!');
+    addDebugLog('[CIABRA AUTOMATION] Pagamento PIX gerado com sucesso!');
     return pixPaymentData;
     
   } catch (error) {
-    console.error('[CIABRA AUTOMATION] ===== ERRO NA AUTOMAÇÃO =====');
+    addDebugLog('[CIABRA AUTOMATION] ===== ERRO NA AUTOMAÇÃO =====');
     console.error('[CIABRA AUTOMATION] Error message:', error.message);
     console.error('[CIABRA AUTOMATION] Error stack:', error.stack);
     console.error('[CIABRA AUTOMATION] ===============================');
@@ -1322,6 +1336,14 @@ app.get('/api/diagnostics', requireLogin, async (req, res) => {
     console.error('Erro ao gerar diagnóstico:', error);
     res.status(500).json({ error: 'Erro ao gerar diagnóstico' });
   }
+});
+
+// Endpoint de debug para ver logs
+app.get('/debug-logs', (req, res) => {
+  res.json({
+    totalLogs: debugLogs.length,
+    logs: debugLogs.slice(-100) // Últimos 100 logs
+  });
 });
 
 // CORREÇÃO CRÍTICA #6: Endpoint com sanitização de inputs
