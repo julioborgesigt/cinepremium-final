@@ -1227,55 +1227,78 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
       } else if (activeGateway === 'ciabra') {
         // --- CIABRA ---
         // Debug: Log valores recebidos
+        console.log('[CIABRA DEBUG] ====== INÍCIO DO PROCESSAMENTO ======');
         console.log('[CIABRA DEBUG] Valores recebidos:');
-        console.log(`  - value (original): ${value} (type: ${typeof value})`);
-        console.log(`  - nome: ${nome}`);
-        console.log(`  - telefone: ${telefone}`);
-        console.log(`  - cpf: ${cpf}`);
-        console.log(`  - email: ${sanitizedEmail}`);
-        console.log(`  - productTitle: ${productTitle}`);
-        console.log(`  - productDescription: ${productDescription}`);
+        console.log(`  - value: "${value}" (type: ${typeof value})`);
+        console.log(`  - nome: "${nome}"`);
+        console.log(`  - telefone: "${telefone}"`);
+        console.log(`  - cpf: "${cpf}"`);
+        console.log(`  - email: "${sanitizedEmail}"`);
+        console.log(`  - productTitle: "${productTitle}"`);
+        console.log(`  - productDescription: "${productDescription}"`);
 
-        // CIABRA usa valor em reais (não centavos)
-        // Garante que value é um número válido
-        const numericValue = Number(value);
-        if (isNaN(numericValue) || numericValue <= 0) {
-          console.error('[CIABRA DEBUG] ❌ Value inválido:', value);
-          throw new Error(`Valor do produto inválido: ${value} (tipo: ${typeof value})`);
+        // Garantir que value é um número inteiro válido (em centavos)
+        let valueInCents;
+        if (typeof value === 'string') {
+          valueInCents = parseInt(value, 10);
+        } else if (typeof value === 'number') {
+          valueInCents = Math.round(value);
+        } else {
+          console.error('[CIABRA DEBUG] ❌ Tipo de value inválido:', typeof value);
+          throw new Error(`Tipo de valor inválido: ${typeof value}`);
         }
 
-        const ciabraPrice = parseFloat((numericValue / 100).toFixed(2));
-        console.log(`[CIABRA DEBUG] Preço calculado: ${ciabraPrice} (de ${numericValue} centavos)`);
+        console.log(`[CIABRA DEBUG] valueInCents: ${valueInCents}`);
 
-        // Validar que o preço não é NaN
+        if (isNaN(valueInCents) || valueInCents <= 0) {
+          console.error('[CIABRA DEBUG] ❌ Value em centavos inválido:', valueInCents);
+          throw new Error(`Valor do produto inválido: ${value} -> ${valueInCents}`);
+        }
+
+        // CIABRA espera valor em REAIS (float com 2 casas decimais)
+        const ciabraPrice = Number((valueInCents / 100).toFixed(2));
+        console.log(`[CIABRA DEBUG] ciabraPrice em reais: ${ciabraPrice}`);
+
         if (isNaN(ciabraPrice) || ciabraPrice <= 0) {
-          console.error('[CIABRA DEBUG] ❌ Preço calculado inválido:', ciabraPrice);
+          console.error('[CIABRA DEBUG] ❌ Preço em reais inválido:', ciabraPrice);
           throw new Error(`Preço calculado inválido: ${ciabraPrice}`);
         }
 
-        // CIABRA requer dados do cliente
+        // Preparar dados do cliente - remover campos nulos/undefined
+        const cleanPhone = telefone ? String(telefone).replace(/\D/g, '') : undefined;
+        const cleanDocument = cpf ? String(cpf).replace(/\D/g, '') : undefined;
+        const cleanDescription = `${productTitle || 'Produto'} - ${productDescription || ''}`.trim().substring(0, 100);
+
+        // Construir objeto customer sem campos undefined
+        const customerData = {
+          name: String(nome),
+          email: String(sanitizedEmail),
+          document: cleanDocument
+        };
+        // Só adiciona phone se existir
+        if (cleanPhone) {
+          customerData.phone = cleanPhone;
+        }
+
+        console.log('[CIABRA DEBUG] Customer data:', JSON.stringify(customerData, null, 2));
+
+        // CIABRA payload - valores garantidos como números
         const ciabraPayload = {
-          description: `${productTitle || 'Produto'} - ${productDescription || ''}`.substring(0, 100),
+          description: cleanDescription,
           dueDate: expirationDate.toISOString(),
           installmentCount: 1,
           invoiceType: "SINGLE",
           items: [
             {
-              description: productTitle || 'Produto',
+              description: String(productTitle || 'Produto'),
               quantity: 1,
               price: ciabraPrice
             }
           ],
           price: ciabraPrice,
-          externalId: purchaseRecord.id.toString(),
+          externalId: String(purchaseRecord.id),
           paymentTypes: ["PIX"],
-          customer: {
-            name: nome,
-            email: sanitizedEmail,
-            document: cpf.replace(/\D/g, ''),
-            phone: telefone ? telefone.replace(/\D/g, '') : null
-          },
-          notifications: [],
+          customer: customerData,
           webhooks: [
             {
               hookType: "PAYMENT_CONFIRMED",
@@ -1288,40 +1311,43 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
           ]
         };
 
-        console.log('[GERARQRCODE] 📤 Enviando para CIABRA...');
-        console.log('[GERARQRCODE] 📦 Payload completo:', JSON.stringify(ciabraPayload, null, 2));
+        console.log('[CIABRA DEBUG] ====== PAYLOAD FINAL ======');
+        console.log(JSON.stringify(ciabraPayload, null, 2));
+        console.log('[CIABRA DEBUG] ============================');
 
         const ciabraResponse = await createCiabraInvoice(ciabraPayload);
 
-        // CIABRA retorna o invoice com ID e precisa buscar os detalhes do pagamento
-        // A resposta contém o invoice, e precisamos extrair o QR Code do pagamento
+        console.log('[CIABRA DEBUG] ====== RESPOSTA DA API ======');
+        console.log(JSON.stringify(ciabraResponse, null, 2));
+        console.log('[CIABRA DEBUG] =============================');
+
+        // CIABRA retorna o invoice com ID
         const invoiceData = ciabraResponse;
         transactionIdResult = invoiceData.id;
 
-        // CIABRA pode retornar o QR Code diretamente ou precisamos buscar
-        // Verifica se há installments com pagamentos
+        // CIABRA pode retornar o código PIX copia-cola (não necessariamente imagem)
+        // Verificar diversos campos possíveis
         if (invoiceData.installments && invoiceData.installments.length > 0) {
           const installment = invoiceData.installments[0];
           if (installment.payments && installment.payments.length > 0) {
             const payment = installment.payments[0];
-            qrCodeResult = payment.pixCode || payment.qrCode || payment.code;
-            qrCodeBase64Result = payment.qrCodeBase64 || payment.pixQrCodeBase64;
+            qrCodeResult = payment.pixCode || payment.qrCode || payment.code || payment.copyPaste || payment.brCode;
+            qrCodeBase64Result = payment.qrCodeBase64 || payment.pixQrCodeBase64 || payment.qrCodeImage;
           }
         }
 
-        // Se não encontrou QR Code nos installments, pode estar em outro lugar
-        if (!qrCodeResult && invoiceData.pixCode) {
-          qrCodeResult = invoiceData.pixCode;
+        // Verificar campos alternativos na raiz
+        if (!qrCodeResult) {
+          qrCodeResult = invoiceData.pixCode || invoiceData.copyPaste || invoiceData.brCode || invoiceData.pix?.code || invoiceData.pix?.copyPaste;
         }
-        if (!qrCodeBase64Result && invoiceData.pixQrCodeBase64) {
-          qrCodeBase64Result = invoiceData.pixQrCodeBase64;
+        if (!qrCodeBase64Result) {
+          qrCodeBase64Result = invoiceData.pixQrCodeBase64 || invoiceData.qrCodeImage || invoiceData.pix?.qrCode;
         }
 
-        console.log('[GERARQRCODE] 📦 Resposta da CIABRA recebida:');
+        console.log('[CIABRA DEBUG] Resultado extraído:');
         console.log(`  - Invoice ID: ${transactionIdResult}`);
-        console.log(`  - QR Code gerado: ${qrCodeResult ? 'Sim' : 'Não'}`);
-        console.log(`  - Base64 presente: ${qrCodeBase64Result ? 'Sim' : 'Não'}`);
-        console.log(`  - Resposta completa:`, JSON.stringify(invoiceData, null, 2));
+        console.log(`  - PIX Code: ${qrCodeResult ? 'Encontrado' : 'NÃO encontrado'}`);
+        console.log(`  - QR Image: ${qrCodeBase64Result ? 'Encontrado' : 'NÃO encontrado'}`);
       } else {
         // --- ONDAPAY (padrão) ---
         const ondaPayload = {
