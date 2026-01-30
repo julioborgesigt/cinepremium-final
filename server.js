@@ -1226,18 +1226,42 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         console.log(`  - Base64 presente: ${qrCodeBase64Result ? 'Sim' : 'Não'}`);
       } else if (activeGateway === 'ciabra') {
         // --- CIABRA ---
+        // Debug: Log valores recebidos
+        console.log('[CIABRA DEBUG] Valores recebidos:');
+        console.log(`  - value (original): ${value} (type: ${typeof value})`);
+        console.log(`  - nome: ${nome}`);
+        console.log(`  - telefone: ${telefone}`);
+        console.log(`  - cpf: ${cpf}`);
+        console.log(`  - email: ${sanitizedEmail}`);
+        console.log(`  - productTitle: ${productTitle}`);
+        console.log(`  - productDescription: ${productDescription}`);
+
         // CIABRA usa valor em reais (não centavos)
-        const ciabraPrice = parseFloat((value / 100).toFixed(2));
+        // Garante que value é um número válido
+        const numericValue = Number(value);
+        if (isNaN(numericValue) || numericValue <= 0) {
+          console.error('[CIABRA DEBUG] ❌ Value inválido:', value);
+          throw new Error(`Valor do produto inválido: ${value} (tipo: ${typeof value})`);
+        }
+
+        const ciabraPrice = parseFloat((numericValue / 100).toFixed(2));
+        console.log(`[CIABRA DEBUG] Preço calculado: ${ciabraPrice} (de ${numericValue} centavos)`);
+
+        // Validar que o preço não é NaN
+        if (isNaN(ciabraPrice) || ciabraPrice <= 0) {
+          console.error('[CIABRA DEBUG] ❌ Preço calculado inválido:', ciabraPrice);
+          throw new Error(`Preço calculado inválido: ${ciabraPrice}`);
+        }
 
         // CIABRA requer dados do cliente
         const ciabraPayload = {
-          description: `${productTitle} - ${productDescription || ''}`.substring(0, 100),
+          description: `${productTitle || 'Produto'} - ${productDescription || ''}`.substring(0, 100),
           dueDate: expirationDate.toISOString(),
           installmentCount: 1,
           invoiceType: "SINGLE",
           items: [
             {
-              description: productTitle,
+              description: productTitle || 'Produto',
               quantity: 1,
               price: ciabraPrice
             }
@@ -1265,7 +1289,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         };
 
         console.log('[GERARQRCODE] 📤 Enviando para CIABRA...');
-        console.log('[GERARQRCODE] 📦 Payload:', JSON.stringify(ciabraPayload, null, 2));
+        console.log('[GERARQRCODE] 📦 Payload completo:', JSON.stringify(ciabraPayload, null, 2));
 
         const ciabraResponse = await createCiabraInvoice(ciabraPayload);
 
@@ -1392,10 +1416,14 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
     let errorCode = null;
 
     // Log completo no servidor
+    console.error("❌ [GERARQRCODE] Erro capturado:");
+    console.error("❌ [GERARQRCODE] Error message:", error.message);
+    console.error("❌ [GERARQRCODE] Error stack:", error.stack);
+
     if (error.response && error.response.data) {
       const apiError = error.response.data;
-      console.error("❌ Erro da API de pagamento:", JSON.stringify(apiError, null, 2));
-      console.error("❌ Status HTTP:", error.response.status);
+      console.error("❌ [GERARQRCODE] Erro da API de pagamento:", JSON.stringify(apiError, null, 2));
+      console.error("❌ [GERARQRCODE] Status HTTP:", error.response.status);
       errorCode = error.response.status;
       errorDetails = apiError;
 
@@ -1410,14 +1438,21 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         errorMessage = `[OndaPay] ${msgValue}`;
       }
 
-      // Se não há mensagem específica mas tem message
-      if (!apiError.error && !apiError.msg && apiError.message) {
+      // Tratamento para CIABRA
+      if (apiError.message) {
         errorMessage = apiError.message;
       }
+      if (apiError.code) {
+        errorCode = apiError.code;
+      }
     } else {
-      console.error("❌ Erro ao gerar QR code:", error.message);
-      console.error("❌ Stack:", error.stack);
+      console.error("❌ [GERARQRCODE] Erro local (não da API):", error.message);
       errorMessage = error.message || errorMessage;
+      errorDetails = {
+        localError: true,
+        message: error.message,
+        stack: error.stack
+      };
     }
 
     // Retorna erro com detalhes para o frontend (útil para debug)
@@ -1425,7 +1460,12 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
       error: errorMessage,
       details: errorDetails,
       httpCode: errorCode,
-      gateway: cachedActiveGateway || 'desconhecido'
+      gateway: cachedActiveGateway || 'desconhecido',
+      debug: {
+        errorType: error.name,
+        hasResponse: !!error.response,
+        responseStatus: error.response?.status
+      }
     });
   }
 });
