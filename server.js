@@ -917,7 +917,7 @@ async function getCiabraInvoiceDetails(invoiceId) {
 async function checkCiabraAuth() {
   const authToken = getCiabraAuthToken();
   if (!authToken) {
-    throw new Error('Credenciais CIABRA não configuradas');
+    return { success: false, error: 'Credenciais CIABRA não configuradas' };
   }
 
   try {
@@ -928,10 +928,11 @@ async function checkCiabraAuth() {
       }
     });
 
-    return response.data;
+    return { success: true, data: response.data };
   } catch (error) {
     console.error('[CIABRA] Erro ao verificar autenticação:', error.response?.data || error.message);
-    throw error;
+    const errorMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+    return { success: false, error: errorMsg };
   }
 }
 
@@ -1228,15 +1229,28 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         // CIABRA usa valor em reais (não centavos)
         const ciabraPrice = parseFloat((value / 100).toFixed(2));
 
+        // CIABRA requer dados do cliente
         const ciabraPayload = {
           description: `${productTitle} - ${productDescription || ''}`.substring(0, 100),
           dueDate: expirationDate.toISOString(),
           installmentCount: 1,
           invoiceType: "SINGLE",
-          items: [],
+          items: [
+            {
+              description: productTitle,
+              quantity: 1,
+              price: ciabraPrice
+            }
+          ],
           price: ciabraPrice,
           externalId: purchaseRecord.id.toString(),
           paymentTypes: ["PIX"],
+          customer: {
+            name: nome,
+            email: sanitizedEmail,
+            document: cpf.replace(/\D/g, ''),
+            phone: telefone ? telefone.replace(/\D/g, '') : null
+          },
           notifications: [],
           webhooks: [
             {
