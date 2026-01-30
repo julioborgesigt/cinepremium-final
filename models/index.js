@@ -27,6 +27,7 @@ const sequelize = new Sequelize(process.env.DB_NAME, process.env.DB_USER, proces
 const Product = require('./product')(sequelize, DataTypes);
 const PurchaseHistory = require('./purchaseHistory')(sequelize, DataTypes);
 const AdminDevice = require('./adminDevice')(sequelize, DataTypes);
+const PaymentSettings = require('./paymentSettings')(sequelize, DataTypes);
 
 // MODIFICADO: Sincroniza os modelos com o banco de forma mais robusta
 // ATENÇÃO: Em produção, prefira usar migrations do Sequelize
@@ -40,6 +41,7 @@ async function syncDatabase() {
 
     await Product.sync(syncOptions);
     await PurchaseHistory.sync(syncOptions);
+    await PaymentSettings.sync(syncOptions);
 
     // AdminDevice: tratamento especial para evitar erro de "too many keys"
     try {
@@ -70,4 +72,4 @@ sequelize.authenticate()
   .then(() => console.log('Conexão com o banco de dados estabelecida com sucesso.'))
   .catch(err => console.error('Erro ao conectar com o banco de dados:', err));
 
-module.exports = { sequelize, Product, PurchaseHistory, AdminDevice };
+module.exports = { sequelize, Product, PurchaseHistory, AdminDevice, PaymentSettings };
