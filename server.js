@@ -865,6 +865,36 @@ async function checkAbacatePayPixStatus(pixId) {
 
 // --- FUNÇÕES PARA CIABRA ---
 
+// Função para criar cliente no CIABRA
+async function createCiabraCustomer(customerData) {
+  const authToken = getCiabraAuthToken();
+  if (!authToken) {
+    throw new Error('Credenciais CIABRA não configuradas (CIABRA_PUBLIC_KEY e CIABRA_PRIVATE_KEY)');
+  }
+
+  try {
+    console.log('[CIABRA] Criando cliente...');
+    console.log('[CIABRA] Customer data:', JSON.stringify(customerData, null, 2));
+
+    const response = await axios.post(`${CIABRA_API_URL}/invoices/applications/customers`, customerData, {
+      headers: {
+        'Authorization': `Basic ${authToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    console.log('[CIABRA] Cliente criado com sucesso:', JSON.stringify(response.data, null, 2));
+    return response.data;
+  } catch (error) {
+    console.error('[CIABRA] Erro ao criar cliente:', error.response?.data || error.message);
+    // Se o erro for de cliente duplicado, pode ser que já exista - log mas não falha
+    if (error.response?.status === 409 || error.response?.status === 400) {
+      console.log('[CIABRA] Cliente pode já existir, tentando continuar...');
+    }
+    throw error;
+  }
+}
+
 // Função para criar cobrança PIX via CIABRA
 async function createCiabraInvoice(payload) {
   const authToken = getCiabraAuthToken();
@@ -1269,21 +1299,29 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         const cleanDocument = cpf ? String(cpf).replace(/\D/g, '') : undefined;
         const cleanDescription = `${productTitle || 'Produto'} - ${productDescription || ''}`.trim().substring(0, 100);
 
-        // Construir objeto customer sem campos undefined
-        const customerData = {
-          name: String(nome),
+        // Construir objeto customer para criar no CIABRA (formato da API de customers)
+        const customerDataForCreation = {
+          fullName: String(nome),  // API de customers usa fullName
           email: String(sanitizedEmail),
           document: cleanDocument
         };
         // Só adiciona phone se existir
         if (cleanPhone) {
-          customerData.phone = cleanPhone;
+          customerDataForCreation.phone = cleanPhone;
         }
 
-        console.log('[CIABRA DEBUG] Customer data:', JSON.stringify(customerData, null, 2));
+        console.log('[CIABRA DEBUG] Customer data for creation:', JSON.stringify(customerDataForCreation, null, 2));
+
+        // CORREÇÃO: Criar cliente primeiro para obter customerId
+        console.log('[CIABRA DEBUG] Criando cliente no CIABRA...');
+        const customerResponse = await createCiabraCustomer(customerDataForCreation);
+        const customerId = customerResponse.id;
+        console.log(`[CIABRA DEBUG] Cliente criado com ID: ${customerId}`);
 
         // CIABRA payload - valores garantidos como números
+        // CORREÇÃO: Usar customerId em vez de objeto customer
         const ciabraPayload = {
+          customerId: customerId,  // ← CORREÇÃO: Usar ID do cliente criado
           description: cleanDescription,
           dueDate: expirationDate.toISOString(),
           installmentCount: 1,
@@ -1298,7 +1336,6 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
           price: ciabraPrice,
           externalId: String(purchaseRecord.id),
           paymentTypes: ["PIX"],
-          customer: customerData,
           webhooks: [
             {
               hookType: "PAYMENT_CONFIRMED",
