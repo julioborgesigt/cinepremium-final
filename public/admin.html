@@ -959,6 +959,22 @@
                   <button class="gateway-test-btn" onclick="testGateway('abacatepay')">Testar</button>
                 </div>
               </div>
+
+              <!-- Gateway CIABRA -->
+              <div class="gateway-card" id="gatewayCiabra" data-gateway="ciabra">
+                <div class="gateway-header">
+                  <span class="gateway-icon">💳</span>
+                  <h3>CIABRA</h3>
+                </div>
+                <div class="gateway-status" id="ciabraStatus">
+                  <span class="status-indicator loading"></span>
+                  <span>Verificando...</span>
+                </div>
+                <div class="gateway-actions">
+                  <button class="gateway-select-btn" onclick="selectGateway('ciabra')">Selecionar</button>
+                  <button class="gateway-test-btn" onclick="testGateway('ciabra')">Testar</button>
+                </div>
+              </div>
             </div>
 
             <div class="current-gateway-info" id="currentGatewayInfo">
@@ -1858,12 +1874,18 @@
         // Atualiza o nome do gateway ativo
         const activeGatewayName = document.getElementById('activeGatewayName');
         if (activeGatewayName) {
-          activeGatewayName.textContent = settings.activeGateway === 'ondapay' ? 'OndaPay 🌊' : 'AbacatePay 🥑';
+          const gatewayNames = {
+            'ondapay': 'OndaPay 🌊',
+            'abacatepay': 'AbacatePay 🥑',
+            'ciabra': 'CIABRA 💳'
+          };
+          activeGatewayName.textContent = gatewayNames[settings.activeGateway] || settings.activeGateway;
         }
 
         // Atualiza cards dos gateways
         updateGatewayCard('ondapay', settings.gateways.ondapay, settings.activeGateway === 'ondapay');
         updateGatewayCard('abacatepay', settings.gateways.abacatepay, settings.activeGateway === 'abacatepay');
+        updateGatewayCard('ciabra', settings.gateways.ciabra, settings.activeGateway === 'ciabra');
 
       } catch (error) {
         if (error.message !== 'Sessão expirada') {
@@ -1905,7 +1927,12 @@
 
     // Seleciona um gateway como ativo
     async function selectGateway(gateway) {
-      if (!confirm(`Deseja alterar o gateway de pagamento para ${gateway === 'ondapay' ? 'OndaPay' : 'AbacatePay'}?\n\nNovos pagamentos serão processados pelo gateway selecionado.`)) {
+      const gatewayNames = {
+        'ondapay': 'OndaPay',
+        'abacatepay': 'AbacatePay',
+        'ciabra': 'CIABRA'
+      };
+      if (!confirm(`Deseja alterar o gateway de pagamento para ${gatewayNames[gateway] || gateway}?\n\nNovos pagamentos serão processados pelo gateway selecionado.`)) {
         return;
       }
 

@@ -695,6 +695,21 @@ const ABACATEPAY_API_URL = "https://api.abacatepay.com/v1";
 const ABACATEPAY_API_KEY = process.env.ABACATEPAY_API_KEY;
 const ABACATEPAY_WEBHOOK_URL = process.env.ABACATEPAY_WEBHOOK_URL || "https://cinepremiumedit.domcloud.dev/abacatepay-webhook";
 
+// --- CONFIGURAÇÃO DA API DE PAGAMENTO (CIABRA) ---
+const CIABRA_API_URL = "https://api.az.center";
+const CIABRA_PUBLIC_KEY = process.env.CIABRA_PUBLIC_KEY;
+const CIABRA_PRIVATE_KEY = process.env.CIABRA_PRIVATE_KEY;
+const CIABRA_WEBHOOK_URL = process.env.CIABRA_WEBHOOK_URL || "https://cinepremiumedit.domcloud.dev/ciabra-webhook";
+
+// Gera o token Basic Auth para CIABRA
+function getCiabraAuthToken() {
+  if (!CIABRA_PUBLIC_KEY || !CIABRA_PRIVATE_KEY) {
+    return null;
+  }
+  const credentials = `${CIABRA_PUBLIC_KEY}:${CIABRA_PRIVATE_KEY}`;
+  return Buffer.from(credentials).toString('base64');
+}
+
 // Cache para armazenar o gateway ativo (evita consultas ao banco em cada requisição)
 let cachedActiveGateway = null;
 let gatewayLastFetch = 0;
@@ -776,8 +791,8 @@ async function getActivePaymentGateway() {
 
 // Função para atualizar o gateway ativo
 async function setActivePaymentGateway(gateway) {
-  if (!['ondapay', 'abacatepay'].includes(gateway)) {
-    throw new Error('Gateway inválido. Use: ondapay ou abacatepay');
+  if (!['ondapay', 'abacatepay', 'ciabra'].includes(gateway)) {
+    throw new Error('Gateway inválido. Use: ondapay, abacatepay ou ciabra');
   }
 
   try {
@@ -844,6 +859,78 @@ async function checkAbacatePayPixStatus(pixId) {
     return response.data;
   } catch (error) {
     console.error('[AbacatePay] Erro ao verificar status:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+// --- FUNÇÕES PARA CIABRA ---
+
+// Função para criar cobrança PIX via CIABRA
+async function createCiabraInvoice(payload) {
+  const authToken = getCiabraAuthToken();
+  if (!authToken) {
+    throw new Error('Credenciais CIABRA não configuradas (CIABRA_PUBLIC_KEY e CIABRA_PRIVATE_KEY)');
+  }
+
+  try {
+    console.log('[CIABRA] Criando cobrança...');
+    console.log('[CIABRA] Payload:', JSON.stringify(payload, null, 2));
+
+    const response = await axios.post(`${CIABRA_API_URL}/invoices/applications/invoices`, payload, {
+      headers: {
+        'Authorization': `Basic ${authToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    console.log('[CIABRA] Resposta recebida:', JSON.stringify(response.data, null, 2));
+    return response.data;
+  } catch (error) {
+    console.error('[CIABRA] Erro ao criar cobrança:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+// Função para obter detalhes da cobrança CIABRA
+async function getCiabraInvoiceDetails(invoiceId) {
+  const authToken = getCiabraAuthToken();
+  if (!authToken) {
+    throw new Error('Credenciais CIABRA não configuradas');
+  }
+
+  try {
+    const response = await axios.get(`${CIABRA_API_URL}/invoices/applications/invoices/${invoiceId}`, {
+      headers: {
+        'Authorization': `Basic ${authToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('[CIABRA] Erro ao obter detalhes:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+// Função para verificar autenticação CIABRA
+async function checkCiabraAuth() {
+  const authToken = getCiabraAuthToken();
+  if (!authToken) {
+    throw new Error('Credenciais CIABRA não configuradas');
+  }
+
+  try {
+    const response = await axios.get(`${CIABRA_API_URL}/auth/applications/check`, {
+      headers: {
+        'Authorization': `Basic ${authToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('[CIABRA] Erro ao verificar autenticação:', error.response?.data || error.message);
     throw error;
   }
 }
@@ -1136,6 +1223,67 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         console.log(`  - Transaction ID: ${transactionIdResult}`);
         console.log(`  - QR Code gerado: ${qrCodeResult ? 'Sim' : 'Não'}`);
         console.log(`  - Base64 presente: ${qrCodeBase64Result ? 'Sim' : 'Não'}`);
+      } else if (activeGateway === 'ciabra') {
+        // --- CIABRA ---
+        // CIABRA usa valor em reais (não centavos)
+        const ciabraPrice = parseFloat((value / 100).toFixed(2));
+
+        const ciabraPayload = {
+          description: `${productTitle} - ${productDescription || ''}`.substring(0, 100),
+          dueDate: expirationDate.toISOString(),
+          installmentCount: 1,
+          invoiceType: "SINGLE",
+          items: [],
+          price: ciabraPrice,
+          externalId: purchaseRecord.id.toString(),
+          paymentTypes: ["PIX"],
+          notifications: [],
+          webhooks: [
+            {
+              hookType: "PAYMENT_CONFIRMED",
+              url: CIABRA_WEBHOOK_URL
+            },
+            {
+              hookType: "PAYMENT_GENERATED",
+              url: CIABRA_WEBHOOK_URL
+            }
+          ]
+        };
+
+        console.log('[GERARQRCODE] 📤 Enviando para CIABRA...');
+        console.log('[GERARQRCODE] 📦 Payload:', JSON.stringify(ciabraPayload, null, 2));
+
+        const ciabraResponse = await createCiabraInvoice(ciabraPayload);
+
+        // CIABRA retorna o invoice com ID e precisa buscar os detalhes do pagamento
+        // A resposta contém o invoice, e precisamos extrair o QR Code do pagamento
+        const invoiceData = ciabraResponse;
+        transactionIdResult = invoiceData.id;
+
+        // CIABRA pode retornar o QR Code diretamente ou precisamos buscar
+        // Verifica se há installments com pagamentos
+        if (invoiceData.installments && invoiceData.installments.length > 0) {
+          const installment = invoiceData.installments[0];
+          if (installment.payments && installment.payments.length > 0) {
+            const payment = installment.payments[0];
+            qrCodeResult = payment.pixCode || payment.qrCode || payment.code;
+            qrCodeBase64Result = payment.qrCodeBase64 || payment.pixQrCodeBase64;
+          }
+        }
+
+        // Se não encontrou QR Code nos installments, pode estar em outro lugar
+        if (!qrCodeResult && invoiceData.pixCode) {
+          qrCodeResult = invoiceData.pixCode;
+        }
+        if (!qrCodeBase64Result && invoiceData.pixQrCodeBase64) {
+          qrCodeBase64Result = invoiceData.pixQrCodeBase64;
+        }
+
+        console.log('[GERARQRCODE] 📦 Resposta da CIABRA recebida:');
+        console.log(`  - Invoice ID: ${transactionIdResult}`);
+        console.log(`  - QR Code gerado: ${qrCodeResult ? 'Sim' : 'Não'}`);
+        console.log(`  - Base64 presente: ${qrCodeBase64Result ? 'Sim' : 'Não'}`);
+        console.log(`  - Resposta completa:`, JSON.stringify(invoiceData, null, 2));
       } else {
         // --- ONDAPAY (padrão) ---
         const ondaPayload = {
@@ -1476,6 +1624,103 @@ app.post('/abacatepay-webhook', webhookLimiter, async (req, res) => {
   } catch (error) {
     console.error('[ABACATEPAY WEBHOOK] ❌ Erro crítico:', error.message);
     console.error('[ABACATEPAY WEBHOOK] Stack:', error.stack);
+    res.status(500).json({ error: 'Erro interno ao processar webhook.' });
+  }
+});
+
+// NOVO: Webhook para CIABRA
+app.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
+  console.log('\n=====================================');
+  console.log('🔷 [CIABRA WEBHOOK] Webhook Recebido');
+  console.log('📅 Timestamp:', new Date().toISOString());
+  console.log('🌐 IP:', req.ip);
+  console.log('📦 Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('📄 Body:', JSON.stringify(req.body, null, 2));
+  console.log('=====================================\n');
+
+  try {
+    // CIABRA envia webhooks com hookType:
+    // INVOICE_CREATED, INVOICE_DELETED, PAYMENT_GENERATED, PAYMENT_CONFIRMED
+    const { hookType, invoice, payment, installment } = req.body;
+
+    if (!hookType) {
+      console.warn('[CIABRA WEBHOOK] ⚠️ Webhook recebido sem hookType.', req.body);
+      return res.status(400).json({ error: 'hookType não informado.' });
+    }
+
+    console.log(`[CIABRA WEBHOOK] 📊 Evento: ${hookType}`);
+
+    // Verifica se é um evento de pagamento confirmado
+    if (hookType !== 'PAYMENT_CONFIRMED') {
+      console.log(`[CIABRA WEBHOOK] ℹ️ Evento '${hookType}' não é de confirmação. Ignorando.`);
+      return res.status(200).json({ status: 'ignored', hookType });
+    }
+
+    // Extrai o ID da transação
+    let transactionId = null;
+    let externalId = null;
+
+    // O invoice contém o externalId que é o purchase.id
+    if (invoice) {
+      transactionId = invoice.id;
+      externalId = invoice.externalId;
+    }
+
+    console.log(`[CIABRA WEBHOOK] 📊 Invoice ID: ${transactionId}`);
+    console.log(`[CIABRA WEBHOOK] 📊 External ID: ${externalId}`);
+
+    if (!transactionId && !externalId) {
+      console.error('[CIABRA WEBHOOK] ❌ Não foi possível extrair o ID da transação');
+      return res.status(400).json({ error: 'ID da transação não encontrado.' });
+    }
+
+    // Busca a compra pelo transactionId OU pelo externalId (purchase.id)
+    let purchase = null;
+
+    if (transactionId) {
+      purchase = await PurchaseHistory.findOne({ where: { transactionId: transactionId } });
+    }
+
+    if (!purchase && externalId) {
+      // Tenta buscar pelo external_id (que é o purchase.id)
+      purchase = await PurchaseHistory.findByPk(parseInt(externalId, 10));
+    }
+
+    if (!purchase) {
+      console.error(`[CIABRA WEBHOOK] ❌ Compra não encontrada para invoice: ${transactionId}`);
+      return res.status(404).json({ error: 'Compra não encontrada.' });
+    }
+
+    console.log(`[CIABRA WEBHOOK] 📋 Compra encontrada:`);
+    console.log(`  - ID: ${purchase.id}`);
+    console.log(`  - Nome: ${purchase.nome}`);
+    console.log(`  - Transaction ID: ${purchase.transactionId}`);
+    console.log(`  - Status atual: ${purchase.status}`);
+
+    // Idempotência: Se já foi processado, retorna sucesso
+    if (purchase.status === 'Sucesso') {
+      console.log(`[CIABRA WEBHOOK] ⚠️ Webhook duplicado ignorado. Compra ${purchase.id} já foi processada.`);
+      return res.status(200).json({ status: 'already_processed' });
+    }
+
+    // Atualiza o status
+    console.log(`[CIABRA WEBHOOK] 🔄 Atualizando compra ${purchase.id} para 'Sucesso'...`);
+    await purchase.update({ status: 'Sucesso' });
+    console.log(`[CIABRA WEBHOOK] ✅ Compra ${purchase.id} atualizada para 'Sucesso'.`);
+
+    // Envia notificação push
+    console.log('[CIABRA WEBHOOK] 📧 Enviando notificação push...');
+    sendPushNotification(
+      'Venda Paga com Sucesso!',
+      `O pagamento de ${purchase.nome} foi confirmado (CIABRA).`
+    );
+
+    console.log('[CIABRA WEBHOOK] ✅ Webhook processado com sucesso!\n');
+    res.status(200).json({ status: 'ok' });
+
+  } catch (error) {
+    console.error('[CIABRA WEBHOOK] ❌ Erro crítico:', error.message);
+    console.error('[CIABRA WEBHOOK] Stack:', error.stack);
     res.status(500).json({ error: 'Erro interno ao processar webhook.' });
   }
 });
@@ -1822,6 +2067,10 @@ app.get('/api/payment-settings', requireLogin, async (req, res) => {
         abacatepay: {
           configured: !!ABACATEPAY_API_KEY,
           webhookUrl: ABACATEPAY_WEBHOOK_URL
+        },
+        ciabra: {
+          configured: !!(CIABRA_PUBLIC_KEY && CIABRA_PRIVATE_KEY),
+          webhookUrl: CIABRA_WEBHOOK_URL
         }
       }
     };
@@ -1852,6 +2101,12 @@ app.post('/api/payment-settings/gateway', requireLogin, applyCsrf, async (req, r
     if (gateway === 'abacatepay' && !ABACATEPAY_API_KEY) {
       return res.status(400).json({
         error: 'AbacatePay não está configurado. Configure ABACATEPAY_API_KEY no .env'
+      });
+    }
+
+    if (gateway === 'ciabra' && (!CIABRA_PUBLIC_KEY || !CIABRA_PRIVATE_KEY)) {
+      return res.status(400).json({
+        error: 'CIABRA não está configurado. Configure CIABRA_PUBLIC_KEY e CIABRA_PRIVATE_KEY no .env'
       });
     }
 
@@ -1910,6 +2165,27 @@ app.post('/api/payment-settings/test', requireLogin, applyCsrf, async (req, res)
         } catch (error) {
           const errorMsg = error.response?.data?.error || error.message;
           testResult = { success: false, message: `Erro ao conectar com AbacatePay: ${errorMsg}` };
+        }
+      }
+    } else if (gateway === 'ciabra') {
+      if (!CIABRA_PUBLIC_KEY || !CIABRA_PRIVATE_KEY) {
+        testResult = { success: false, message: 'Credenciais CIABRA não configuradas.' };
+      } else {
+        try {
+          // Tenta verificar a autenticação com a CIABRA
+          const authResult = await checkCiabraAuth();
+          if (authResult.success) {
+            testResult = {
+              success: true,
+              message: 'Conexão com CIABRA estabelecida com sucesso!',
+              accountInfo: authResult.data || 'Conta conectada'
+            };
+          } else {
+            testResult = { success: false, message: `Erro ao conectar com CIABRA: ${authResult.error}` };
+          }
+        } catch (error) {
+          const errorMsg = error.response?.data?.message || error.message;
+          testResult = { success: false, message: `Erro ao conectar com CIABRA: ${errorMsg}` };
         }
       }
     } else {
