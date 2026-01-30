@@ -886,11 +886,26 @@ async function createCiabraCustomer(customerData) {
     console.log('[CIABRA] Cliente criado com sucesso:', JSON.stringify(response.data, null, 2));
     return response.data;
   } catch (error) {
-    console.error('[CIABRA] Erro ao criar cliente:', error.response?.data || error.message);
-    // Se o erro for de cliente duplicado, pode ser que já exista - log mas não falha
-    if (error.response?.status === 409 || error.response?.status === 400) {
-      console.log('[CIABRA] Cliente pode já existir, tentando continuar...');
+    console.error('[CIABRA] ===== ERRO AO CRIAR CLIENTE =====');
+    console.error('[CIABRA] Error message:', error.message);
+    console.error('[CIABRA] Error stack:', error.stack);
+    
+    if (error.response) {
+      console.error('[CIABRA] HTTP Status:', error.response.status);
+      console.error('[CIABRA] Response data:', JSON.stringify(error.response.data, null, 2));
+      console.error('[CIABRA] Response headers:', JSON.stringify(error.response.headers, null, 2));
+      
+      // Se o erro for de cliente duplicado, pode ser que já exista
+      if (error.response.status === 409 || error.response.status === 400) {
+        console.log('[CIABRA] Cliente pode já existir. Detalhes:', error.response.data);
+      }
+    } else if (error.request) {
+      console.error('[CIABRA] No response received. Request:', error.request);
+    } else {
+      console.error('[CIABRA] Error setting up request:', error.message);
     }
+    console.error('[CIABRA] ========================================');
+    
     throw error;
   }
 }
@@ -916,7 +931,21 @@ async function createCiabraInvoice(payload) {
     console.log('[CIABRA] Resposta recebida:', JSON.stringify(response.data, null, 2));
     return response.data;
   } catch (error) {
-    console.error('[CIABRA] Erro ao criar cobrança:', error.response?.data || error.message);
+    console.error('[CIABRA] ===== ERRO AO CRIAR COBRANÇA =====');
+    console.error('[CIABRA] Error message:', error.message);
+    console.error('[CIABRA] Error stack:', error.stack);
+    
+    if (error.response) {
+      console.error('[CIABRA] HTTP Status:', error.response.status);
+      console.error('[CIABRA] Response data:', JSON.stringify(error.response.data, null, 2));
+      console.error('[CIABRA] Response headers:', JSON.stringify(error.response.headers, null, 2));
+    } else if (error.request) {
+      console.error('[CIABRA] No response received. Request:', error.request);
+    } else {
+      console.error('[CIABRA] Error setting up request:', error.message);
+    }
+    console.error('[CIABRA] ========================================');
+    
     throw error;
   }
 }
@@ -1326,16 +1355,11 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
           dueDate: expirationDate.toISOString(),
           installmentCount: 1,
           invoiceType: "SINGLE",
-          items: [
-            {
-              description: String(productTitle || 'Produto'),
-              quantity: 1,
-              price: ciabraPrice
-            }
-          ],
+          items: [],  // ← CORREÇÃO: Array vazio conforme documentação
           price: ciabraPrice,
           externalId: String(purchaseRecord.id),
           paymentTypes: ["PIX"],
+          notifications: [],  // ← Adicionar campo notifications vazio
           webhooks: [
             {
               hookType: "PAYMENT_CONFIRMED",
