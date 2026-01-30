@@ -6,6 +6,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
 const axios = require('axios'); // Utilize axios para requisições HTTP
+const puppeteer = require('puppeteer'); // Para automação de navegador
 const { Op } = require('sequelize');
 const { Product, PurchaseHistory, AdminDevice, PaymentSettings, sequelize } = require('./models');
 
@@ -986,44 +987,88 @@ async function getCiabraInvoiceDetails(invoiceId) {
   }
 }
 
-// Função para gerar pagamento PIX no CIABRA
-async function getCiabraInstallmentPayments(installmentId) {
+// Função para gerar pagamento PIX no CIABRA usando automação
+async function generateCiabraPixWithAutomation(installmentId) {
+  let browser = null;
   try {
-    console.log('[CIABRA] Buscando pagamentos do installment:', installmentId);
+    console.log('[CIABRA AUTOMATION] Iniciando automação para installment:', installmentId);
     
-    const publicKey = process.env.CIABRA_PUBLIC_KEY;
-    const privateKey = process.env.CIABRA_PRIVATE_KEY;
-    const token = Buffer.from(`${publicKey}:${privateKey}`).toString('base64');
+    // Lançar navegador headless
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu'
+      ]
+    });
     
-    const response = await axios.get(
-      `https://api.az.center/payments/applications/installments/${installmentId}`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Basic ${token}`
+    const page = await browser.newPage();
+    
+    // Interceptar requisições de rede para capturar a resposta do PIX
+    let pixPaymentData = null;
+    
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      request.continue();
+    });
+    
+    page.on('response', async (response) => {
+      const url = response.url();
+      if (url.includes('/api/payments/pix')) {
+        try {
+          const data = await response.json();
+          console.log('[CIABRA AUTOMATION] Capturado resposta do PIX:', JSON.stringify(data, null, 2));
+          pixPaymentData = data;
+        } catch (e) {
+          console.error('[CIABRA AUTOMATION] Erro ao parsear resposta:', e.message);
         }
       }
-    );
-
-    console.log('[CIABRA] Pagamentos encontrados:', JSON.stringify(response.data, null, 2));
-    return response.data;
-  } catch (error) {
-    console.error('[CIABRA] ===== ERRO AO BUSCAR PAGAMENTOS =====');
-    console.error('[CIABRA] Error message:', error.message);
-    console.error('[CIABRA] Error stack:', error.stack);
+    });
     
-    if (error.response) {
-      console.error('[CIABRA] HTTP Status:', error.response.status);
-      console.error('[CIABRA] Response data:', JSON.stringify(error.response.data, null, 2));
-      console.error('[CIABRA] Response headers:', JSON.stringify(error.response.headers, null, 2));
-    } else if (error.request) {
-      console.error('[CIABRA] No response received. Request:', error.request);
-    } else {
-      console.error('[CIABRA] Error setting up request:', error.message);
+    // Acessar página de pagamento
+    const paymentUrl = `https://pagar.ciabra.com.br/i/${installmentId}`;
+    console.log('[CIABRA AUTOMATION] Acessando:', paymentUrl);
+    await page.goto(paymentUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+    
+    // Aguardar e clicar no botão PIX
+    console.log('[CIABRA AUTOMATION] Aguardando botão PIX...');
+    await page.waitForSelector('button:has-text("PIX")', { timeout: 10000 });
+    await page.click('button:has-text("PIX")');
+    console.log('[CIABRA AUTOMATION] Clicou em PIX');
+    
+    // Aguardar um pouco para o botão Pagar aparecer
+    await page.waitForTimeout(1000);
+    
+    // Aguardar e clicar no botão Pagar
+    console.log('[CIABRA AUTOMATION] Aguardando botão Pagar...');
+    await page.waitForSelector('button:has-text("Pagar")', { timeout: 10000 });
+    await page.click('button:has-text("Pagar")');
+    console.log('[CIABRA AUTOMATION] Clicou em Pagar');
+    
+    // Aguardar a resposta ser capturada
+    await page.waitForTimeout(3000);
+    
+    if (!pixPaymentData) {
+      throw new Error('Não foi possível capturar dados do pagamento PIX');
     }
-    console.error('[CIABRA] ================================================');
     
+    console.log('[CIABRA AUTOMATION] Pagamento PIX gerado com sucesso!');
+    return pixPaymentData;
+    
+  } catch (error) {
+    console.error('[CIABRA AUTOMATION] ===== ERRO NA AUTOMAÇÃO =====');
+    console.error('[CIABRA AUTOMATION] Error message:', error.message);
+    console.error('[CIABRA AUTOMATION] Error stack:', error.stack);
+    console.error('[CIABRA AUTOMATION] ===============================');
     throw error;
+  } finally {
+    if (browser) {
+      await browser.close();
+      console.log('[CIABRA AUTOMATION] Navegador fechado');
+    }
   }
 }
 
@@ -1461,23 +1506,15 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
           console.log('[CIABRA DEBUG] InstallmentId encontrado:', installmentId);
           
           try {
-            // Buscar pagamentos do installment via API oficial
-            const paymentsResponse = await getCiabraInstallmentPayments(installmentId);
-            console.log('[CIABRA DEBUG] ====== PAGAMENTOS ENCONTRADOS ======');
-            console.log(JSON.stringify(paymentsResponse, null, 2));
-            console.log('[CIABRA DEBUG] ====================================');
-            
-            // Procurar pelo pagamento PIX na lista
-            if (Array.isArray(paymentsResponse) && paymentsResponse.length > 0) {
-              // Pegar o primeiro pagamento (geralmente é o PIX)
-              pixPaymentData = paymentsResponse[0];
-              console.log('[CIABRA DEBUG] Pagamento PIX encontrado:', pixPaymentData.id);
-            } else {
-              console.error('[CIABRA DEBUG] Nenhum pagamento encontrado na resposta');
-            }
+            // Gerar pagamento PIX usando automação
+            pixPaymentData = await generateCiabraPixWithAutomation(installmentId);
+            console.log('[CIABRA DEBUG] ====== PAGAMENTO PIX GERADO ======');
+            console.log(JSON.stringify(pixPaymentData, null, 2));
+            console.log('[CIABRA DEBUG] ==================================');
           } catch (pixError) {
-            console.error('[CIABRA DEBUG] Erro ao buscar pagamentos');
+            console.error('[CIABRA DEBUG] Erro ao gerar pagamento PIX com automação');
             console.error('[CIABRA DEBUG] Erro:', pixError.message);
+            console.error('[CIABRA DEBUG] Stack:', pixError.stack);
           }
         } else {
           console.error('[CIABRA DEBUG] InstallmentId não encontrado na resposta do invoice');
