@@ -987,24 +987,28 @@ async function getCiabraInvoiceDetails(invoiceId) {
 }
 
 // Função para gerar pagamento PIX no CIABRA
-async function generateCiabraPixPayment(installmentId) {
+async function getCiabraInstallmentPayments(installmentId) {
   try {
-    console.log('[CIABRA] Gerando pagamento PIX para installment:', installmentId);
+    console.log('[CIABRA] Buscando pagamentos do installment:', installmentId);
     
-    const response = await axios.post(
-      'https://pagar.ciabra.com.br/api/payments/pix',
-      { installmentId: installmentId },
+    const publicKey = process.env.CIABRA_PUBLIC_KEY;
+    const privateKey = process.env.CIABRA_PRIVATE_KEY;
+    const token = Buffer.from(`${publicKey}:${privateKey}`).toString('base64');
+    
+    const response = await axios.get(
+      `https://api.az.center/payments/applications/installments/${installmentId}`,
       {
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${token}`
         }
       }
     );
 
-    console.log('[CIABRA] Pagamento PIX gerado com sucesso:', JSON.stringify(response.data, null, 2));
+    console.log('[CIABRA] Pagamentos encontrados:', JSON.stringify(response.data, null, 2));
     return response.data;
   } catch (error) {
-    console.error('[CIABRA] ===== ERRO AO GERAR PAGAMENTO PIX =====');
+    console.error('[CIABRA] ===== ERRO AO BUSCAR PAGAMENTOS =====');
     console.error('[CIABRA] Error message:', error.message);
     console.error('[CIABRA] Error stack:', error.stack);
     
@@ -1457,13 +1461,22 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
           console.log('[CIABRA DEBUG] InstallmentId encontrado:', installmentId);
           
           try {
-            // Chamar endpoint para gerar pagamento PIX
-            pixPaymentData = await generateCiabraPixPayment(installmentId);
-            console.log('[CIABRA DEBUG] ====== PAGAMENTO PIX GERADO ======');
-            console.log(JSON.stringify(pixPaymentData, null, 2));
-            console.log('[CIABRA DEBUG] ==================================');
+            // Buscar pagamentos do installment via API oficial
+            const paymentsResponse = await getCiabraInstallmentPayments(installmentId);
+            console.log('[CIABRA DEBUG] ====== PAGAMENTOS ENCONTRADOS ======');
+            console.log(JSON.stringify(paymentsResponse, null, 2));
+            console.log('[CIABRA DEBUG] ====================================');
+            
+            // Procurar pelo pagamento PIX na lista
+            if (Array.isArray(paymentsResponse) && paymentsResponse.length > 0) {
+              // Pegar o primeiro pagamento (geralmente é o PIX)
+              pixPaymentData = paymentsResponse[0];
+              console.log('[CIABRA DEBUG] Pagamento PIX encontrado:', pixPaymentData.id);
+            } else {
+              console.error('[CIABRA DEBUG] Nenhum pagamento encontrado na resposta');
+            }
           } catch (pixError) {
-            console.error('[CIABRA DEBUG] Erro ao gerar pagamento PIX');
+            console.error('[CIABRA DEBUG] Erro ao buscar pagamentos');
             console.error('[CIABRA DEBUG] Erro:', pixError.message);
           }
         } else {
