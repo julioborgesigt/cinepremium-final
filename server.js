@@ -986,6 +986,43 @@ async function getCiabraInvoiceDetails(invoiceId) {
   }
 }
 
+// Função para gerar pagamento PIX no CIABRA
+async function generateCiabraPixPayment(installmentId) {
+  try {
+    console.log('[CIABRA] Gerando pagamento PIX para installment:', installmentId);
+    
+    const response = await axios.post(
+      'https://pagar.ciabra.com.br/api/payments/pix',
+      { installmentId: installmentId },
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('[CIABRA] Pagamento PIX gerado com sucesso:', JSON.stringify(response.data, null, 2));
+    return response.data;
+  } catch (error) {
+    console.error('[CIABRA] ===== ERRO AO GERAR PAGAMENTO PIX =====');
+    console.error('[CIABRA] Error message:', error.message);
+    console.error('[CIABRA] Error stack:', error.stack);
+    
+    if (error.response) {
+      console.error('[CIABRA] HTTP Status:', error.response.status);
+      console.error('[CIABRA] Response data:', JSON.stringify(error.response.data, null, 2));
+      console.error('[CIABRA] Response headers:', JSON.stringify(error.response.headers, null, 2));
+    } else if (error.request) {
+      console.error('[CIABRA] No response received. Request:', error.request);
+    } else {
+      console.error('[CIABRA] Error setting up request:', error.message);
+    }
+    console.error('[CIABRA] ================================================');
+    
+    throw error;
+  }
+}
+
 // Função para verificar autenticação CIABRA
 async function checkCiabraAuth() {
   const authToken = getCiabraAuthToken();
@@ -1400,36 +1437,51 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         const invoiceData = ciabraResponse;
         transactionIdResult = invoiceData.id;
         
-        // CORREÇÃO: Buscar detalhes completos do invoice para obter dados do PIX
-        console.log('[CIABRA DEBUG] Buscando detalhes completos do invoice...');
-        let invoiceDetails = ciabraResponse; // Fallback para resposta inicial
-        try {
-          invoiceDetails = await getCiabraInvoiceDetails(transactionIdResult);
-          console.log('[CIABRA DEBUG] ====== DETALHES DO INVOICE ======');
-          console.log(JSON.stringify(invoiceDetails, null, 2));
-          console.log('[CIABRA DEBUG] ==================================');
-        } catch (detailsError) {
-          console.error('[CIABRA DEBUG] Erro ao buscar detalhes, usando resposta inicial');
-          console.error('[CIABRA DEBUG] Erro:', detailsError.message);
-        }
-
-        // CORREÇÃO: Usar invoiceDetails que tem os dados completos do PIX
-        // Verificar diversos campos possíveis na estrutura de installments/payments
-        if (invoiceDetails.installments && invoiceDetails.installments.length > 0) {
-          const installment = invoiceDetails.installments[0];
-          if (installment.payments && installment.payments.length > 0) {
-            const payment = installment.payments[0];
-            qrCodeResult = payment.pixCode || payment.qrCode || payment.code || payment.copyPaste || payment.brCode || payment.emv;
-            qrCodeBase64Result = payment.qrCodeBase64 || payment.pixQrCodeBase64 || payment.qrCodeImage || payment.base64;
+        // CORREÇÃO: Gerar pagamento PIX automaticamente
+        console.log('[CIABRA DEBUG] Gerando pagamento PIX automaticamente...');
+        let pixPaymentData = null;
+        
+        // Extrair installmentId da resposta do invoice
+        if (ciabraResponse.installments && ciabraResponse.installments.length > 0) {
+          const installmentId = ciabraResponse.installments[0].id;
+          console.log('[CIABRA DEBUG] InstallmentId encontrado:', installmentId);
+          
+          try {
+            // Chamar endpoint para gerar pagamento PIX
+            pixPaymentData = await generateCiabraPixPayment(installmentId);
+            console.log('[CIABRA DEBUG] ====== PAGAMENTO PIX GERADO ======');
+            console.log(JSON.stringify(pixPaymentData, null, 2));
+            console.log('[CIABRA DEBUG] ==================================');
+          } catch (pixError) {
+            console.error('[CIABRA DEBUG] Erro ao gerar pagamento PIX');
+            console.error('[CIABRA DEBUG] Erro:', pixError.message);
           }
+        } else {
+          console.error('[CIABRA DEBUG] InstallmentId não encontrado na resposta do invoice');
         }
 
-        // Verificar campos alternativos na raiz do invoiceDetails
-        if (!qrCodeResult) {
-          qrCodeResult = invoiceDetails.pixCode || invoiceDetails.copyPaste || invoiceDetails.brCode || invoiceDetails.pix?.code || invoiceDetails.pix?.copyPaste || invoiceDetails.pix?.emv;
-        }
-        if (!qrCodeBase64Result) {
-          qrCodeBase64Result = invoiceDetails.pixQrCodeBase64 || invoiceDetails.qrCodeImage || invoiceDetails.pix?.qrCode || invoiceDetails.pix?.base64;
+        // CORREÇÃO: Usar pixPaymentData para extrair código PIX
+        if (pixPaymentData) {
+          // O campo 'emv' contém o código PIX copia-cola
+          qrCodeResult = pixPaymentData.emv || pixPaymentData.pixCode || pixPaymentData.code;
+          
+          // Gerar QR Code base64 a partir do código EMV (se necessário)
+          // Por enquanto, não temos a imagem, mas o código copia-cola é suficiente
+          qrCodeBase64Result = pixPaymentData.qrCodeBase64 || pixPaymentData.base64 || null;
+          
+          console.log('[CIABRA DEBUG] Código PIX extraído do pagamento gerado');
+        } else {
+          console.error('[CIABRA DEBUG] pixPaymentData não disponível, tentando extrair da resposta inicial');
+          
+          // Fallback: tentar extrair da resposta inicial (provavelmente não vai funcionar)
+          if (ciabraResponse.installments && ciabraResponse.installments.length > 0) {
+            const installment = ciabraResponse.installments[0];
+            if (installment.payments && installment.payments.length > 0) {
+              const payment = installment.payments[0];
+              qrCodeResult = payment.emv || payment.pixCode || payment.code;
+              qrCodeBase64Result = payment.qrCodeBase64 || payment.base64;
+            }
+          }
         }
 
         console.log('[CIABRA DEBUG] Resultado extraído:');
