@@ -1432,6 +1432,16 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         console.log('[CIABRA DEBUG] ====== RESPOSTA DA API ======');
         console.log(JSON.stringify(ciabraResponse, null, 2));
         console.log('[CIABRA DEBUG] =============================');
+        
+        // Log detalhado da estrutura de installments
+        if (ciabraResponse.installments) {
+          console.log('[CIABRA DEBUG] Installments encontrados:', ciabraResponse.installments.length);
+          ciabraResponse.installments.forEach((inst, idx) => {
+            console.log(`[CIABRA DEBUG] Installment[${idx}]:`, JSON.stringify(inst, null, 2));
+          });
+        } else {
+          console.log('[CIABRA DEBUG] ATENÇÃO: installments não encontrado na resposta!');
+        }
 
         // CIABRA retorna o invoice com ID
         const invoiceData = ciabraResponse;
