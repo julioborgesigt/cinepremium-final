@@ -120,6 +120,66 @@
       overflow-wrap: break-word;
       white-space: normal;
     }
+    
+    /* Estilos para abas de método de pagamento */
+    .payment-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin: 20px 0;
+    }
+    .payment-tab {
+      padding: 12px 24px;
+      background: #4e4e4e;
+      color: #fff;
+      border: 2px solid #7a7a7a;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .payment-tab:hover {
+      background: #5e5e5e;
+      border-color: #823cd3;
+    }
+    .payment-tab.active {
+      background: #823cd3;
+      border-color: #872bf1;
+      font-weight: bold;
+    }
+    .payment-content {
+      display: none;
+      margin-top: 20px;
+      padding: 20px;
+      background: #2e2e2e;
+      border-radius: 8px;
+    }
+    .payment-content.active {
+      display: block;
+    }
+    .qr-code-container {
+      text-align: center;
+    }
+    .pix-code-container {
+      text-align: center;
+    }
+    .pix-code-box {
+      background: #1e1e1e;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 15px 0;
+      border: 1px solid #823cd3;
+    }
+    .pix-code-text {
+      font-family: monospace;
+      font-size: 12px;
+      color: #4CAF50;
+      word-break: break-all;
+      margin: 10px 0;
+    }
     .confirmation-text {  
       font-size: 14px;
       color: white;
@@ -330,12 +390,40 @@
       <button id="generateBtn" class="button" disabled>Gerar QR Code</button>
       <div id="loadingSpinner" class="loading-spinner"></div> 
       <div id="qrDisplay" class="qr-section" style="display: none;">
-        <h3>Pagamento via QR Code</h3>
-        <div id="qrCodeImg"></div>
-        <p id="qrCodeText" class="copy-info"></p>
-        <p id="transactionId" class="copy-info"></p>
+        <h3>Escolha o método de pagamento</h3>
+        
+        <!-- Abas de seleção -->
+        <div class="payment-tabs">
+          <button class="payment-tab active" data-tab="qrcode">
+            <span>📱</span> Escanear QR Code
+          </button>
+          <button class="payment-tab" data-tab="pixcode">
+            <span>📋</span> Copiar Código PIX
+          </button>
+        </div>
+        
+        <!-- Conteúdo: QR Code -->
+        <div id="qrcodeContent" class="payment-content active">
+          <div class="qr-code-container">
+            <p style="color: #fff; margin-bottom: 15px;">Escaneie o QR Code abaixo com o aplicativo do seu banco:</p>
+            <div id="qrCodeImg"></div>
+          </div>
+        </div>
+        
+        <!-- Conteúdo: Código PIX -->
+        <div id="pixcodeContent" class="payment-content">
+          <div class="pix-code-container">
+            <p style="color: #fff; margin-bottom: 15px;">Copie o código PIX abaixo e cole no aplicativo do seu banco:</p>
+            <div class="pix-code-box">
+              <p class="pix-code-text" id="qrCodeText"></p>
+            </div>
+            <button id="copyBtn" class="button">Copiar Código PIX</button>
+          </div>
+        </div>
+        
+        <!-- Informações comuns -->
+        <p id="transactionId" class="copy-info" style="margin-top: 20px;"></p>
         <p id="paymentStatus" class="status-feedback"></p>
-        <button id="copyBtn" class="button">Copiar Código</button>
       </div>
       <button id="backBtn" class="button" style="margin-top:15px;">Voltar aos Produtos</button>
     </div>
@@ -823,6 +911,22 @@ document.getElementById('generateBtn').addEventListener('click', async function(
     }
     
     // CORRIGIDO: Substituído alert() por toast notification
+    // Lógica para alternar entre as abas de pagamento
+    document.querySelectorAll('.payment-tab').forEach(tab => {
+      tab.addEventListener('click', function() {
+        // Remove classe active de todas as abas
+        document.querySelectorAll('.payment-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.payment-content').forEach(c => c.classList.remove('active'));
+        
+        // Adiciona classe active na aba clicada
+        this.classList.add('active');
+        
+        // Mostra o conteúdo correspondente
+        const tabName = this.getAttribute('data-tab');
+        document.getElementById(tabName + 'Content').classList.add('active');
+      });
+    });
+    
     document.getElementById('copyBtn').addEventListener('click', function() {
       const qrCodeText = document.getElementById('qrCodeText').textContent;
       navigator.clipboard.writeText(qrCodeText)
