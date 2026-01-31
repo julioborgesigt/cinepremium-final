@@ -1014,12 +1014,15 @@ async function generateCiabraPixWithAutomation(installmentId) {
     // Lançar navegador headless
     browser = await puppeteer.launch({
       headless: true,
+      executablePath: '/usr/bin/chromium-browser',  // Caminho do Chromium no servidor
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--disable-extensions'
       ]
     });
     
