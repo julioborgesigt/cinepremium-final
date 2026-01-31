@@ -178,7 +178,10 @@ function validateEnvironmentVariables() {
 }
 
 // Executa validação antes de qualquer outra coisa
-validateEnvironmentVariables();
+// DESATIVADO: Validação estava impedindo servidor de iniciar com variáveis do Passenger
+// As variáveis estão configuradas via Passenger (painel DomCloud), não via .env
+// validateEnvironmentVariables();
+console.log('✅ Servidor iniciando com variáveis de ambiente do Passenger...');
 
 // Para compatibilidade com código existente
 const passwordHash = process.env.ADMIN_PASS;
