@@ -1512,6 +1512,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
       let transactionIdResult;
       let qrCodeResult;
       let qrCodeBase64Result;
+      let ciabraInstallmentId = null; // Para armazenar installmentId da CIABRA
 
       if (activeGateway === 'abacatepay') {
         // --- ABACATEPAY ---
@@ -1676,6 +1677,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         // Extrair installmentId da resposta do invoice
         if (ciabraResponse.installments && ciabraResponse.installments.length > 0) {
           const installmentId = ciabraResponse.installments[0].id;
+          ciabraInstallmentId = installmentId; // Armazenar para uso posterior
           console.log('[CIABRA DEBUG] InstallmentId encontrado:', installmentId);
           
           try {
@@ -1825,6 +1827,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         `${nome} gerou um QR Code para pagamento.`
       );
 
+      // Preparar resultado para enviar ao frontend
       const resultado = {
         id: transactionIdResult,
         qr_code: qrCodeResult,
@@ -1832,6 +1835,12 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         expirationTimestamp: expirationDate.getTime(),
         gateway: activeGateway
       };
+      
+      // Se for CIABRA, adicionar installmentId para polling ativo
+      if (activeGateway === 'ciabra' && ciabraInstallmentId) {
+        resultado.installmentId = ciabraInstallmentId;
+        console.log('[GERARQRCODE] 🔑 InstallmentId adicionado ao resultado:', resultado.installmentId);
+      }
       
       // Logs detalhados para debug
       addDebugLog(`[GERARQRCODE] ===== RESULTADO FINAL =====`);
@@ -2320,6 +2329,114 @@ app.post('/check-local-status', statusCheckLimiter, applyCsrf, async (req, res) 
       console.error("[STATUS CHECK] ❌ Erro ao verificar status local:", error.message);
       res.status(500).json({ error: "Erro ao verificar status localmente" });
     }
+});
+// Novo endpoint para consultar status de pagamento na API CIABRA
+// Inserir após o endpoint /check-local-status no server.js
+
+// Endpoint para consultar pagamento CIABRA via API (polling ativo)
+app.post('/api/check-ciabra-payment', statusCheckLimiter, applyCsrf, async (req, res) => {
+  try {
+    const { transactionId, installmentId } = req.body;
+    
+    if (!transactionId) {
+      return res.status(400).json({ error: "Transaction ID não fornecido." });
+    }
+    
+    // Primeiro, verifica status local
+    const purchase = await PurchaseHistory.findOne({ where: { transactionId } });
+    
+    if (!purchase) {
+      console.log(`[CIABRA POLLING] ⚠️  Compra não encontrada: ${transactionId}`);
+      return res.json({ status: 'Gerado', source: 'local' });
+    }
+    
+    // Se já está pago, retorna imediatamente
+    if (purchase.status === 'Sucesso') {
+      console.log(`[CIABRA POLLING] ✅ Já pago (cache local): ${transactionId}`);
+      return res.json({ status: 'Sucesso', source: 'local' });
+    }
+    
+    // Se não tem installmentId, não pode consultar API
+    if (!installmentId) {
+      console.log(`[CIABRA POLLING] ⚠️  InstallmentId não fornecido para ${transactionId}`);
+      return res.json({ status: purchase.status, source: 'local' });
+    }
+    
+    // Consultar API CIABRA
+    console.log(`[CIABRA POLLING] 🔍 Consultando API para installment: ${installmentId}`);
+    
+    try {
+      const apiUrl = `https://api.az.center/payments/applications/installments/${installmentId}`;
+      const authToken = Buffer.from(`${CIABRA_PUBLIC_KEY}:${CIABRA_PRIVATE_KEY}`).toString('base64');
+      
+      const response = await axios.get(apiUrl, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${authToken}`
+        },
+        timeout: 10000 // 10 segundos
+      });
+      
+      console.log(`[CIABRA POLLING] 📦 Resposta da API:`, JSON.stringify(response.data, null, 2));
+      
+      // Verificar se há pagamentos confirmados
+      const payments = response.data;
+      let isPaid = false;
+      
+      if (Array.isArray(payments) && payments.length > 0) {
+        // Procurar por pagamento confirmado
+        const confirmedPayment = payments.find(p => 
+          p.status === 'CONFIRMED' || 
+          p.status === 'PAID' || 
+          p.status === 'SUCCESS'
+        );
+        
+        if (confirmedPayment) {
+          isPaid = true;
+          console.log(`[CIABRA POLLING] ✅ Pagamento confirmado encontrado!`);
+          console.log(`[CIABRA POLLING] Payment ID: ${confirmedPayment.id}, Status: ${confirmedPayment.status}`);
+          
+          // Atualizar banco de dados
+          await purchase.update({ status: 'Sucesso' });
+          console.log(`[CIABRA POLLING] 💾 Status atualizado no banco para 'Sucesso'`);
+          
+          // Enviar notificação
+          sendPushNotification(
+            'Venda Paga com Sucesso!',
+            `O pagamento de ${purchase.nome} foi confirmado (CIABRA Polling).`
+          );
+          
+          return res.json({ 
+            status: 'Sucesso', 
+            source: 'ciabra_api',
+            paymentId: confirmedPayment.id
+          });
+        }
+      }
+      
+      // Se não encontrou pagamento confirmado
+      console.log(`[CIABRA POLLING] ⏳ Pagamento ainda pendente`);
+      return res.json({ 
+        status: purchase.status, 
+        source: 'ciabra_api',
+        paymentsCount: Array.isArray(payments) ? payments.length : 0
+      });
+      
+    } catch (apiError) {
+      console.error(`[CIABRA POLLING] ❌ Erro ao consultar API:`, apiError.message);
+      
+      // Em caso de erro na API, retorna status local
+      return res.json({ 
+        status: purchase.status, 
+        source: 'local_fallback',
+        error: apiError.message
+      });
+    }
+    
+  } catch (error) {
+    console.error("[CIABRA POLLING] ❌ Erro crítico:", error.message);
+    res.status(500).json({ error: "Erro ao verificar pagamento" });
+  }
 });
 
 // NOVO: Endpoint de debug para diagnóstico de pagamentos (temporário)
