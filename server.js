@@ -2380,21 +2380,19 @@ app.post('/api/check-ciabra-payment', statusCheckLimiter, applyCsrf, async (req,
       console.log(`[CIABRA POLLING] 📦 Resposta da API:`, JSON.stringify(response.data, null, 2));
       
       // Verificar se há pagamentos confirmados
-      const payments = response.data;
+      const apiData = response.data;
       let isPaid = false;
+      let paymentId = null;
       
-      if (Array.isArray(payments) && payments.length > 0) {
-        // Procurar por pagamento confirmado
-        const confirmedPayment = payments.find(p => 
-          p.status === 'CONFIRMED' || 
-          p.status === 'PAID' || 
-          p.status === 'SUCCESS'
-        );
+      // A API CIABRA retorna um objeto com: { payment: {...}, pix: {...}, boleto: {...} }
+      if (apiData.payment && apiData.payment.status) {
+        const paymentStatus = apiData.payment.status.toUpperCase();
         
-        if (confirmedPayment) {
+        if (paymentStatus === 'CONFIRMED' || paymentStatus === 'PAID' || paymentStatus === 'SUCCESS') {
           isPaid = true;
+          paymentId = apiData.payment.id;
           console.log(`[CIABRA POLLING] ✅ Pagamento confirmado encontrado!`);
-          console.log(`[CIABRA POLLING] Payment ID: ${confirmedPayment.id}, Status: ${confirmedPayment.status}`);
+          console.log(`[CIABRA POLLING] Payment ID: ${paymentId}, Status: ${paymentStatus}`);
           
           // Atualizar banco de dados
           await purchase.update({ status: 'Sucesso' });
@@ -2409,17 +2407,18 @@ app.post('/api/check-ciabra-payment', statusCheckLimiter, applyCsrf, async (req,
           return res.json({ 
             status: 'Sucesso', 
             source: 'ciabra_api',
-            paymentId: confirmedPayment.id
+            paymentId: paymentId
           });
         }
       }
       
       // Se não encontrou pagamento confirmado
       console.log(`[CIABRA POLLING] ⏳ Pagamento ainda pendente`);
+      console.log(`[CIABRA POLLING] Payment status: ${apiData.payment ? apiData.payment.status : 'N/A'}`);
       return res.json({ 
         status: purchase.status, 
         source: 'ciabra_api',
-        paymentsCount: Array.isArray(payments) ? payments.length : 0
+        paymentStatus: apiData.payment ? apiData.payment.status : null
       });
       
     } catch (apiError) {
