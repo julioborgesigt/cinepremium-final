@@ -1414,9 +1414,23 @@ app.get('/api/diagnostics', requireLogin, async (req, res) => {
 
 // Endpoint de debug para ver logs
 app.get('/debug-logs', (req, res) => {
+  const limit = parseInt(req.query.limit) || 100;
   res.json({
-    totalLogs: debugLogs.length,
-    logs: debugLogs.slice(-100) // Últimos 100 logs
+    timestamp: new Date().toISOString(),
+    server: {
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      activeGateway: activeGateway
+    },
+    cache: {
+      pixCodesSize: pixCodesCache.size,
+      pixCodes: Array.from(pixCodesCache.keys())
+    },
+    logs: {
+      total: debugLogs.length,
+      showing: Math.min(limit, debugLogs.length),
+      entries: debugLogs.slice(-limit)
+    }
   });
 });
 
@@ -1793,9 +1807,26 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         expirationTimestamp: expirationDate.getTime(),
         gateway: activeGateway
       };
+      
+      // Logs detalhados para debug
+      addDebugLog(`[GERARQRCODE] ===== RESULTADO FINAL =====`);
+      addDebugLog(`[GERARQRCODE] Transaction ID: ${resultado.id}`);
+      addDebugLog(`[GERARQRCODE] QR Code (copia e cola): ${resultado.qr_code ? 'Presente (' + resultado.qr_code.length + ' chars)' : 'AUSENTE ❌'}`);
+      addDebugLog(`[GERARQRCODE] QR Code Base64 (imagem): ${resultado.qr_code_base64 ? 'Presente (' + resultado.qr_code_base64.length + ' chars)' : 'AUSENTE ❌'}`);
+      addDebugLog(`[GERARQRCODE] Gateway: ${resultado.gateway}`);
+      addDebugLog(`[GERARQRCODE] Expira em: ${new Date(resultado.expirationTimestamp).toISOString()}`);
+      addDebugLog(`[GERARQRCODE] =============================`);
+      
+      console.log('[GERARQRCODE] 📊 Dados enviados ao frontend:');
+      console.log(`  - QR Code texto: ${resultado.qr_code ? '✅ OK' : '❌ FALTANDO'}`);
+      console.log(`  - QR Code imagem: ${resultado.qr_code_base64 ? '✅ OK' : '❌ FALTANDO'}`);
+      console.log(`  - Transaction ID: ${resultado.id}`);
+      console.log(`  - Gateway: ${resultado.gateway}`);
 
       console.log(`[GERARQRCODE] ✅ QR Code gerado com sucesso (${activeGateway}):`, resultado.id);
       console.log('[GERARQRCODE] ℹ️  Cliente irá começar a fazer polling a cada 5 segundos...\n');
+      
+      addDebugLog(`[GERARQRCODE] ✅ Resposta enviada ao frontend com sucesso`);
       res.json(resultado);
     } catch (transactionError) {
       // CORREÇÃO: Se qualquer coisa falhar, faz rollback
