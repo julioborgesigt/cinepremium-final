@@ -1141,8 +1141,9 @@ async function generateCiabraPixWithAutomation(installmentId) {
     addDebugLog('[CIABRA AUTOMATION] Procurando botão Pagar...');
     let pagarButton = null;
     
+    // Método 1: XPath procurando em qualquer elemento
     try {
-      const pagarButtons = await page.$x("//button[contains(text(), 'Pagar')]");
+      const pagarButtons = await page.$x("//*[contains(text(), 'Pagar')]");
       if (pagarButtons.length > 0) {
         pagarButton = pagarButtons[0];
         addDebugLog('[CIABRA AUTOMATION] Botão Pagar encontrado via XPath');
@@ -1151,8 +1152,42 @@ async function generateCiabraPixWithAutomation(installmentId) {
       addDebugLog('[CIABRA AUTOMATION] Método XPath para Pagar falhou:', e.message);
     }
     
+    // Método 2: Procurar por classes Mantine Button
     if (!pagarButton) {
-      throw new Error('Botão Pagar não encontrado na página');
+      try {
+        const mantineButtons = await page.$$('button[class*="mantine-Button"], span[class*="mantine-Button"]');
+        for (const btn of mantineButtons) {
+          const text = await page.evaluate(el => el.textContent, btn);
+          if (text && text.includes('Pagar')) {
+            pagarButton = btn;
+            addDebugLog('[CIABRA AUTOMATION] Botão Pagar encontrado via Mantine classes:', text);
+            break;
+          }
+        }
+      } catch (e) {
+        addDebugLog('[CIABRA AUTOMATION] Método Mantine falhou:', e.message);
+      }
+    }
+    
+    // Método 3: Busca manual em todos os elementos clicáveis
+    if (!pagarButton) {
+      try {
+        const allClickable = await page.$$('button, span[class*="Button"], div[onclick], [role="button"]');
+        for (const el of allClickable) {
+          const text = await page.evaluate(e => e.textContent, el);
+          if (text && text.includes('Pagar')) {
+            pagarButton = el;
+            addDebugLog('[CIABRA AUTOMATION] Botão Pagar encontrado via busca manual:', text);
+            break;
+          }
+        }
+      } catch (e) {
+        addDebugLog('[CIABRA AUTOMATION] Busca manual para Pagar falhou:', e.message);
+      }
+    }
+    
+    if (!pagarButton) {
+      throw new Error('Botão Pagar não encontrado na página após 3 tentativas');
     }
     
     // Clicar no botão Pagar
