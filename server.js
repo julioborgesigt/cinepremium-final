@@ -1592,6 +1592,8 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
           
           try {
             // Aguardar webhook PAYMENT_GENERATED do CIABRA
+            addDebugLog('[CIABRA] Aguardando webhook PAYMENT_GENERATED...');
+            addDebugLog(`[CIABRA] InstallmentId: ${installmentId}`);
             console.log('[CIABRA DEBUG] Aguardando webhook PAYMENT_GENERATED...');
             
             // Aguardar até 30 segundos pelo webhook
@@ -1603,10 +1605,17 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
               if (pixCodesCache.has(installmentId)) {
                 const cachedData = pixCodesCache.get(installmentId);
                 pixPaymentData = cachedData.payment;
+                addDebugLog('[CIABRA] ✅ Código PIX recebido via webhook!');
+                addDebugLog(`[CIABRA] EMV: ${pixPaymentData.emv ? pixPaymentData.emv.substring(0, 50) + '...' : 'N/A'}`);
                 console.log('[CIABRA DEBUG] ====== CÓDIGO PIX RECEBIDO VIA WEBHOOK ======');
                 console.log(JSON.stringify(pixPaymentData, null, 2));
                 console.log('[CIABRA DEBUG] ==========================================');
                 break;
+              }
+              
+              // Log a cada 5 segundos
+              if (elapsed % 5000 === 0 && elapsed > 0) {
+                addDebugLog(`[CIABRA] Ainda aguardando... (${elapsed/1000}s)`);
               }
               
               // Aguardar antes de verificar novamente
@@ -1615,6 +1624,8 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
             }
             
             if (!pixPaymentData) {
+              addDebugLog('[CIABRA] ❌ Timeout: Webhook não recebido em 30s');
+              addDebugLog(`[CIABRA] Cache atual tem ${pixCodesCache.size} entradas`);
               console.warn('[CIABRA DEBUG] Timeout: Webhook PAYMENT_GENERATED não recebido em 30s');
             }
           } catch (pixError) {
@@ -2038,12 +2049,15 @@ app.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
 
     // Capturar evento PAYMENT_GENERATED para armazenar código PIX
     if (hookType === 'PAYMENT_GENERATED') {
+      addDebugLog('[WEBHOOK] 🔑 PAYMENT_GENERATED recebido!');
       console.log('[CIABRA WEBHOOK] 🔑 Evento PAYMENT_GENERATED recebido!');
       
       if (payment && installment) {
         const installmentId = installment.id;
         const pixCode = payment.emv;
         
+        addDebugLog(`[WEBHOOK] InstallmentId: ${installmentId}`);
+        addDebugLog(`[WEBHOOK] PIX Code: ${pixCode ? 'Presente (' + pixCode.length + ' chars)' : 'Ausente'}`);
         console.log(`[CIABRA WEBHOOK] 📊 InstallmentId: ${installmentId}`);
         console.log(`[CIABRA WEBHOOK] 📊 PIX Code: ${pixCode ? pixCode.substring(0, 50) + '...' : 'N/A'}`);
         
@@ -2055,6 +2069,7 @@ app.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
             timestamp: Date.now()
           });
           
+          addDebugLog(`[WEBHOOK] ✅ Código PIX armazenado! Cache size: ${pixCodesCache.size}`);
           console.log(`[CIABRA WEBHOOK] ✅ Código PIX armazenado para installment ${installmentId}`);
           
           // Limpar cache antigo (TTL)
@@ -2065,8 +2080,11 @@ app.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
             }
           }, PIX_CACHE_TTL);
         } else {
+          addDebugLog('[WEBHOOK] ⚠️ Código PIX ou installmentId ausente');
           console.warn('[CIABRA WEBHOOK] ⚠️ Código PIX ou installmentId não encontrado no webhook');
         }
+      } else {
+        addDebugLog('[WEBHOOK] ⚠️ payment ou installment ausente no body');
       }
       
       return res.status(200).json({ status: 'pix_stored' });
