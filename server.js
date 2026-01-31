@@ -1067,23 +1067,55 @@ async function generateCiabraPixWithAutomation(installmentId) {
     })));
     addDebugLog('[CIABRA AUTOMATION] Botões encontrados:', JSON.stringify(buttons, null, 2));
     
+    // Aguardar elementos carregarem (página React)
+    await page.waitForTimeout(3000);
+    
     // Tentar encontrar botão PIX de várias formas
     addDebugLog('[CIABRA AUTOMATION] Procurando botão PIX...');
     let pixButton = null;
     
-    // Método 1: XPath com texto
+    // Método 1: Seletor CSS simples
     try {
-      const pixButtons = await page.$x("//button[contains(text(), 'PIX')]");
-      if (pixButtons.length > 0) {
-        pixButton = pixButtons[0];
-        addDebugLog('[CIABRA AUTOMATION] Botão PIX encontrado via XPath');
+      pixButton = await page.$('button:has-text("PIX")');
+      if (pixButton) {
+        addDebugLog('[CIABRA AUTOMATION] Botão PIX encontrado via CSS :has-text');
       }
     } catch (e) {
-      addDebugLog('[CIABRA AUTOMATION] Método XPath falhou:', e.message);
+      addDebugLog('[CIABRA AUTOMATION] Método CSS falhou:', e.message);
+    }
+    
+    // Método 2: XPath com texto (case insensitive)
+    if (!pixButton) {
+      try {
+        const pixButtons = await page.$x("//button[contains(translate(text(), 'PIX', 'pix'), 'pix')]");
+        if (pixButtons.length > 0) {
+          pixButton = pixButtons[0];
+          addDebugLog('[CIABRA AUTOMATION] Botão PIX encontrado via XPath');
+        }
+      } catch (e) {
+        addDebugLog('[CIABRA AUTOMATION] Método XPath falhou:', e.message);
+      }
+    }
+    
+    // Método 3: Procurar por qualquer elemento clicável com PIX
+    if (!pixButton) {
+      try {
+        const allClickable = await page.$$('button, a, div[onclick], [role="button"]');
+        for (const el of allClickable) {
+          const text = await page.evaluate(e => e.textContent, el);
+          if (text && text.toUpperCase().includes('PIX')) {
+            pixButton = el;
+            addDebugLog('[CIABRA AUTOMATION] Botão PIX encontrado via busca manual:', text);
+            break;
+          }
+        }
+      } catch (e) {
+        addDebugLog('[CIABRA AUTOMATION] Método busca manual falhou:', e.message);
+      }
     }
     
     if (!pixButton) {
-      throw new Error('Botão PIX não encontrado na página');
+      throw new Error('Botão PIX não encontrado na página após 3 tentativas');
     }
     
     // Clicar no botão PIX
