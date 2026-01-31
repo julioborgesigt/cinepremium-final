@@ -124,11 +124,15 @@
     /* Estilos para exibição do código PIX */
     .pix-code-display {
       background: #1e1e1e;
-      padding: 15px;
+      padding: 15px 20px;
       border-radius: 8px;
       margin: 20px auto;
-      max-width: 600px;
+      max-width: 90%;
+      width: fit-content;
       border: 1px solid #823cd3;
+      display: flex;
+      justify-content: center;
+      align-items: center;
     }
     .pix-code-text {
       font-family: monospace;
@@ -138,6 +142,7 @@
       margin: 0;
       line-height: 1.6;
       text-align: center;
+      max-width: 100%;
     }
     .qr-code-container {
       text-align: center;
@@ -797,10 +802,18 @@ document.getElementById('generateBtn').addEventListener('click', async function(
 
     // NOVO: Função auxiliar para processar resposta do QR Code
     function processQRCodeResponse(data) {
-      // LOG 4: Confirma o sucesso e o disparo da notificação
-      console.log('[Página de Venda] QR Code recebido do servidor. A notificação para o admin foi disparada neste momento.');
+      console.log('[FRONTEND] ===== PROCESSANDO RESPOSTA DO SERVIDOR =====');
+      console.log('[FRONTEND] Dados recebidos:', {
+        id: data.id,
+        gateway: data.gateway,
+        qr_code_presente: !!data.qr_code,
+        qr_code_length: data.qr_code ? data.qr_code.length : 0,
+        qr_code_base64_presente: !!data.qr_code_base64,
+        qr_code_base64_length: data.qr_code_base64 ? data.qr_code_base64.length : 0,
+        expirationTimestamp: data.expirationTimestamp
+      });
 
-      // O resto do seu código de sucesso...
+      // Exibe a seção de pagamento
       document.getElementById('qrDisplay').style.display = 'block';
       document.getElementById('nome').style.display = 'none';
       document.getElementById('telefone').style.display = 'none';
@@ -808,31 +821,51 @@ document.getElementById('generateBtn').addEventListener('click', async function(
       document.getElementById('email').style.display = 'none';
       document.getElementById('generateBtn').style.display = 'none';
 
-      // CORRIGIDO: Valida e cria imagem com createElement
+      // Processar QR Code Imagem
       const qrCodeImgContainer = document.getElementById('qrCodeImg');
       qrCodeImgContainer.innerHTML = ''; // Limpa conteúdo anterior
 
-      // Validação básica do base64
       if (data.qr_code_base64 && typeof data.qr_code_base64 === 'string') {
+        console.log('[FRONTEND] ✅ QR Code Base64 encontrado, criando imagem...');
         const qrImg = document.createElement('img');
         qrImg.alt = 'QR Code de Pagamento';
         qrImg.style.width = '200px';
         qrImg.style.height = '200px';
+        qrImg.style.display = 'block';
+        qrImg.style.margin = '0 auto';
+        qrImg.onload = function() {
+          console.log('[FRONTEND] ✅ Imagem QR Code carregada com sucesso!');
+        };
         qrImg.onerror = function() {
+          console.error('[FRONTEND] ❌ Erro ao carregar imagem QR Code');
           showErrorToast('Erro ao carregar QR Code. Tente novamente.');
         };
         qrImg.src = 'data:image/png;base64,' + data.qr_code_base64;
         qrCodeImgContainer.appendChild(qrImg);
+      } else {
+        console.warn('[FRONTEND] ⚠️ QR Code Base64 NÃO encontrado na resposta!');
+        qrCodeImgContainer.innerHTML = '<p style="color: #ff9800;">QR Code não disponível</p>';
       }
 
-      document.getElementById('qrCodeText').textContent = data.qr_code;
+      // Processar código PIX copia e cola
+      if (data.qr_code && typeof data.qr_code === 'string') {
+        console.log('[FRONTEND] ✅ Código PIX copia e cola encontrado');
+        document.getElementById('qrCodeText').textContent = data.qr_code;
+      } else {
+        console.warn('[FRONTEND] ⚠️ Código PIX copia e cola NÃO encontrado!');
+        document.getElementById('qrCodeText').textContent = 'Código PIX não disponível';
+      }
+      
       transactionId = data.id;
       qrCodeExpirationTimestamp = data.expirationTimestamp;
       document.getElementById('transactionId').textContent = 'ID da Transação: ' + transactionId;
+      
+      console.log('[FRONTEND] ========================================');
 
-      console.log('✅ [QR CODE] QR Code gerado com sucesso!');
-      console.log('  - Transaction ID:', transactionId);
-      console.log('  - Expira em:', new Date(qrCodeExpirationTimestamp).toLocaleString());
+      console.log('[FRONTEND] ✅ Processamento concluído com sucesso!');
+      console.log('[FRONTEND] Transaction ID:', transactionId);
+      console.log('[FRONTEND] Expira em:', new Date(qrCodeExpirationTimestamp).toLocaleString());
+      console.log('[FRONTEND] Para ver logs detalhados do servidor, acesse: /debug-logs');
 
       // Limpa polling anterior se existir
       if (pollingInterval) clearInterval(pollingInterval);
