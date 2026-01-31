@@ -27,6 +27,7 @@ const crypto = require('crypto');
 const csrf = require('csurf');
 const xss = require('xss');
 const validator = require('validator');
+const QRCode = require('qrcode'); // Para gerar QR Code a partir do código PIX
 
 const app = express();
 
@@ -1707,15 +1708,14 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
           // O campo 'emv' contém o código PIX copia-cola
           qrCodeResult = pixPaymentData.emv || pixPaymentData.pixCode || pixPaymentData.code;
           
-          // Gerar QR Code base64 a partir do código EMV (se necessário)
-          // Por enquanto, não temos a imagem, mas o código copia-cola é suficiente
+          // Tentar obter imagem QR Code da resposta
           qrCodeBase64Result = pixPaymentData.qrCodeBase64 || pixPaymentData.base64 || null;
           
           console.log('[CIABRA DEBUG] Código PIX extraído do pagamento gerado');
         } else {
           console.error('[CIABRA DEBUG] pixPaymentData não disponível, tentando extrair da resposta inicial');
           
-          // Fallback: tentar extrair da resposta inicial (provavelmente não vai funcionar)
+          // Fallback: tentar extrair da resposta inicial
           if (ciabraResponse.installments && ciabraResponse.installments.length > 0) {
             const installment = ciabraResponse.installments[0];
             if (installment.payments && installment.payments.length > 0) {
@@ -1726,12 +1726,34 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
           }
         }
 
+        // Se temos o código PIX mas não temos a imagem, gerar QR Code
+        if (qrCodeResult && !qrCodeBase64Result) {
+          console.log('[CIABRA DEBUG] Gerando QR Code a partir do código PIX...');
+          addDebugLog('[CIABRA] Gerando QR Code base64 a partir do código PIX');
+          try {
+            // Gerar QR Code como data URL (base64)
+            const qrCodeDataUrl = await QRCode.toDataURL(qrCodeResult, {
+              errorCorrectionLevel: 'M',
+              type: 'image/png',
+              width: 300,
+              margin: 1
+            });
+            // Remover o prefixo 'data:image/png;base64,' para obter apenas o base64
+            qrCodeBase64Result = qrCodeDataUrl.replace(/^data:image\/png;base64,/, '');
+            console.log('[CIABRA DEBUG] ✅ QR Code gerado com sucesso!');
+            addDebugLog('[CIABRA] ✅ QR Code base64 gerado com sucesso');
+          } catch (qrError) {
+            console.error('[CIABRA DEBUG] ❌ Erro ao gerar QR Code:', qrError.message);
+            addDebugLog(`[CIABRA] ❌ Erro ao gerar QR Code: ${qrError.message}`);
+          }
+        }
+
         console.log('[CIABRA DEBUG] Resultado extraído:');
         console.log(`  - Invoice ID: ${transactionIdResult}`);
         console.log(`  - PIX Code: ${qrCodeResult ? 'Encontrado' : 'NÃO encontrado'}`);
         console.log(`  - QR Image: ${qrCodeBase64Result ? 'Encontrado' : 'NÃO encontrado'}`);
-      } else {
-        // --- ONDAPAY (padrão) ---
+      } else if (activeGateway === 'ondapay') {
+        // --- ONDAPAY ---
         const ondaPayload = {
           amount: parseFloat((value / 100).toFixed(2)),
           external_id: purchaseRecord.id.toString(),
