@@ -2025,6 +2025,28 @@ app.post('/abacatepay-webhook', webhookLimiter, async (req, res) => {
   }
 });
 
+// Endpoint de teste para simular webhook PAYMENT_GENERATED
+app.post('/test-webhook', async (req, res) => {
+  const { installmentId, emv } = req.body;
+  
+  if (!installmentId || !emv) {
+    return res.status(400).json({ error: 'installmentId e emv são obrigatórios' });
+  }
+  
+  addDebugLog(`[TEST] Simulando webhook para installment: ${installmentId}`);
+  
+  // Simular webhook PAYMENT_GENERATED
+  pixCodesCache.set(installmentId, {
+    emv: emv,
+    payment: { emv: emv, status: 'WAITING' },
+    timestamp: Date.now()
+  });
+  
+  addDebugLog(`[TEST] Código PIX armazenado! Cache size: ${pixCodesCache.size}`);
+  
+  res.json({ status: 'ok', message: 'Webhook simulado com sucesso' });
+});
+
 // NOVO: Webhook para CIABRA
 app.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
   console.log('\n=====================================');
