@@ -1068,7 +1068,7 @@ async function generateCiabraPixWithAutomation(installmentId) {
     addDebugLog('[CIABRA AUTOMATION] Botões encontrados:', JSON.stringify(buttons, null, 2));
     
     // Aguardar elementos carregarem (página React)
-    await page.waitForTimeout(3000);
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
     // Tentar encontrar botão PIX de várias formas
     addDebugLog('[CIABRA AUTOMATION] Procurando botão PIX...');
@@ -1123,7 +1123,7 @@ async function generateCiabraPixWithAutomation(installmentId) {
     addDebugLog('[CIABRA AUTOMATION] Clicou em PIX');
     
     // Aguardar um pouco para o botão Pagar aparecer
-    await page.waitForTimeout(2000);
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
     // Tirar screenshot após clicar em PIX
     const screenshotPath2 = `/tmp/ciabra_${installmentId}_2.png`;
@@ -1161,7 +1161,7 @@ async function generateCiabraPixWithAutomation(installmentId) {
     
     // Aguardar a resposta ser capturada
     addDebugLog('[CIABRA AUTOMATION] Aguardando resposta do pagamento...');
-    await page.waitForTimeout(5000);
+    await new Promise(resolve => setTimeout(resolve, 5000));
     
     if (!pixPaymentData) {
       throw new Error('Não foi possível capturar dados do pagamento PIX');
