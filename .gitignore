@@ -138,3 +138,23 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 firebase-service-account.json
+
+# Puppeteer screenshots (debug)
+/tmp/ciabra_*.png
+*.png.tmp
+
+# Arquivos de auditoria/documentação antiga
+docs/archive/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Puppeteer cache (pode ser grande)
+.puppeteer/
