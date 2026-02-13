@@ -5,13 +5,13 @@ module.exports = (sequelize, DataTypes) => {
       primaryKey: true,
       autoIncrement: true
     },
-    // Gateway ativo: 'ondapay', 'abacatepay' ou 'ciabra'
+    // Gateway ativo: 'ciabra'
     activeGateway: {
       type: DataTypes.STRING(50),
       allowNull: false,
-      defaultValue: 'ondapay',
+      defaultValue: 'ciabra',
       validate: {
-        isIn: [['ondapay', 'abacatepay', 'ciabra']]
+        isIn: [['ciabra']]
       }
     },
     // Campo para guardar configurações extras em JSON (futuro)

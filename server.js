@@ -98,32 +98,21 @@ function validateEnvironmentVariables() {
     });
   }
 
-  // 4. ONDAPAY_CLIENT_ID e ONDAPAY_CLIENT_SECRET
-  if (!process.env.ONDAPAY_CLIENT_ID) {
+  // 4. CIABRA_PUBLIC_KEY e CIABRA_PRIVATE_KEY
+  if (!process.env.CIABRA_PUBLIC_KEY) {
     errors.push({
-      var: 'ONDAPAY_CLIENT_ID',
-      message: 'Client ID da OndaPay não configurado',
-      solution: 'Obtenha no painel da OndaPay e configure no .env'
+      var: 'CIABRA_PUBLIC_KEY',
+      message: 'Chave pública da CIABRA não configurada',
+      solution: 'Obtenha no painel da CIABRA e configure no .env'
     });
   }
-  if (!process.env.ONDAPAY_CLIENT_SECRET) {
+  if (!process.env.CIABRA_PRIVATE_KEY) {
     errors.push({
-      var: 'ONDAPAY_CLIENT_SECRET',
-      message: 'Client Secret da OndaPay não configurado',
-      solution: 'Obtenha no painel da OndaPay e configure no .env'
+      var: 'CIABRA_PRIVATE_KEY',
+      message: 'Chave privada da CIABRA não configurada',
+      solution: 'Obtenha no painel da CIABRA e configure no .env'
     });
   }
-
-  // ALTERAÇÃO: Removida a obrigatoriedade do SECRET, pois a OndaPay não fornece
-  /*
-  if (!process.env.ONDAPAY_WEBHOOK_SECRET) {
-    errors.push({
-      var: 'ONDAPAY_WEBHOOK_SECRET',
-      message: 'Webhook Secret não configurado (CRÍTICO para segurança)',
-      solution: 'Obtenha no painel da OndaPay - previne fraude de pagamentos'
-    });
-  }
-  */
 
   // 6. ALLOWED_ORIGINS - Obrigatório em produção
   if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
@@ -245,8 +234,7 @@ app.use(helmet({
         "https://fcm.googleapis.com",
         "https://fcmregistrations.googleapis.com",
         "https://firebaseinstallations.googleapis.com", // Firebase installations
-        "https://ondapay.app.br",
-        "https://api.ondapay.app.br"
+        "https://api.az.center" // CIABRA API
       ],
       imgSrc: ["'self'", "data:", "https:"],
       styleSrc: ["'self'", "'unsafe-inline'"], // unsafe-inline necessário por enquanto
@@ -555,7 +543,7 @@ const loginLimiter = rateLimit({
 // NOVO: Rate limiting para webhook (proteção contra replay attacks e DoS)
 const webhookLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minuto
-  max: 30, // 30 webhooks por minuto (OndaPay não envia mais que isso)
+  max: 30, // 30 webhooks por minuto
   message: 'Muitos webhooks recebidos. Tente novamente em 1 minuto.',
   standardHeaders: true,
   legacyHeaders: false
@@ -702,22 +690,6 @@ app.get('/admin', requireLogin, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
-// --- CONFIGURAÇÃO DA API DE PAGAMENTO (ONDAPAY) ---
-const ONDAPAY_API_URL = "https://api.ondapay.app";
-// MODIFICADO: Credenciais agora vêm de variáveis de ambiente
-const ONDAPAY_CLIENT_ID = process.env.ONDAPAY_CLIENT_ID;
-const ONDAPAY_CLIENT_SECRET = process.env.ONDAPAY_CLIENT_SECRET;
-// CORREÇÃO: WEBHOOK_URL deve vir do .env ao invés de hardcoded
-const WEBHOOK_URL = process.env.WEBHOOK_URL || "https://cinepremiumedit.domcloud.dev/ondapay-webhook";
-
-let ondaPayToken = null;
-let tokenPromise = null; // CORREÇÃO: Promise cache para evitar race conditions
-
-// --- CONFIGURAÇÃO DA API DE PAGAMENTO (ABACATEPAY) ---
-const ABACATEPAY_API_URL = "https://api.abacatepay.com/v1";
-const ABACATEPAY_API_KEY = process.env.ABACATEPAY_API_KEY;
-const ABACATEPAY_WEBHOOK_URL = process.env.ABACATEPAY_WEBHOOK_URL || "https://cinepremiumedit.domcloud.dev/abacatepay-webhook";
-
 // --- CONFIGURAÇÃO DA API DE PAGAMENTO (CIABRA) ---
 const CIABRA_API_URL = "https://api.az.center";
 const CIABRA_PUBLIC_KEY = process.env.CIABRA_PUBLIC_KEY;
@@ -738,50 +710,6 @@ let cachedActiveGateway = null;
 let gatewayLastFetch = 0;
 const GATEWAY_CACHE_TTL = 60000; // 1 minuto
 
-// Função para obter/renovar o token de autenticação
-// CORREÇÃO: Implementa lock via promise caching para evitar múltiplas chamadas simultâneas
-async function getOndaPayToken(forceNew = false) {
-  // Se já temos um token válido e não estamos forçando renovação, retorna
-  if (ondaPayToken && !forceNew) {
-    return ondaPayToken;
-  }
-
-  // CORREÇÃO: Se já existe uma requisição em andamento, retorna a mesma promise
-  // Isso evita que múltiplas requisições simultâneas façam múltiplas chamadas à API
-  if (tokenPromise && !forceNew) {
-    console.log('[OndaPay] Requisição de token já em andamento, aguardando...');
-    return tokenPromise;
-  }
-
-  // Cria uma nova promise e armazena no cache
-  tokenPromise = (async () => {
-    try {
-      console.log('[OndaPay] Solicitando novo token...');
-      const response = await axios.post(`${ONDAPAY_API_URL}/api/v1/login`, {}, {
-        headers: {
-          'client_id': ONDAPAY_CLIENT_ID,
-          'client_secret': ONDAPAY_CLIENT_SECRET,
-          'Content-Type': 'application/json'
-        }
-      });
-      ondaPayToken = response.data.token;
-      console.log("✅ Token da OndaPay obtido/renovado com sucesso.");
-      return ondaPayToken;
-    } catch (error) {
-      console.error("❌ Erro ao obter token da OndaPay:", error.response ? error.response.data : error.message);
-      ondaPayToken = null;
-      throw new Error("Não foi possível autenticar com o serviço de pagamento.");
-    } finally {
-      // Limpa o cache da promise após conclusão (sucesso ou erro)
-      tokenPromise = null;
-    }
-  })();
-
-  return tokenPromise;
-}
-
-// --- FUNÇÕES PARA ABACATEPAY ---
-
 // Função para obter o gateway de pagamento ativo
 async function getActivePaymentGateway() {
   const now = Date.now();
@@ -795,10 +723,10 @@ async function getActivePaymentGateway() {
     // Busca configurações do banco
     let settings = await PaymentSettings.findOne();
 
-    // Se não existir, cria com valor padrão (ondapay)
+    // Se não existir, cria com valor padrão (ciabra)
     if (!settings) {
-      settings = await PaymentSettings.create({ activeGateway: 'ondapay' });
-      console.log('✅ Configuração de pagamento criada com gateway padrão: ondapay');
+      settings = await PaymentSettings.create({ activeGateway: 'ciabra' });
+      console.log('✅ Configuração de pagamento criada com gateway padrão: ciabra');
     }
 
     cachedActiveGateway = settings.activeGateway;
@@ -807,15 +735,15 @@ async function getActivePaymentGateway() {
     return cachedActiveGateway;
   } catch (error) {
     console.error('❌ Erro ao obter gateway ativo:', error);
-    // Fallback para ondapay em caso de erro
-    return 'ondapay';
+    // Fallback para ciabra em caso de erro
+    return 'ciabra';
   }
 }
 
 // Função para atualizar o gateway ativo
 async function setActivePaymentGateway(gateway) {
-  if (!['ondapay', 'abacatepay', 'ciabra'].includes(gateway)) {
-    throw new Error('Gateway inválido. Use: ondapay, abacatepay ou ciabra');
+  if (!['ciabra'].includes(gateway)) {
+    throw new Error('Gateway inválido. Use: ciabra');
   }
 
   try {
@@ -835,53 +763,6 @@ async function setActivePaymentGateway(gateway) {
     return settings;
   } catch (error) {
     console.error('❌ Erro ao alterar gateway:', error);
-    throw error;
-  }
-}
-
-// Função para criar PIX QR Code via AbacatePay
-async function createAbacatePayPixQRCode(payload) {
-  if (!ABACATEPAY_API_KEY) {
-    throw new Error('ABACATEPAY_API_KEY não configurada');
-  }
-
-  try {
-    console.log('[AbacatePay] Criando PIX QR Code...');
-    console.log('[AbacatePay] Payload:', JSON.stringify(payload, null, 2));
-
-    const response = await axios.post(`${ABACATEPAY_API_URL}/pixQrCode/create`, payload, {
-      headers: {
-        'Authorization': `Bearer ${ABACATEPAY_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    console.log('[AbacatePay] Resposta recebida:', JSON.stringify(response.data, null, 2));
-    return response.data;
-  } catch (error) {
-    console.error('[AbacatePay] Erro ao criar PIX:', error.response?.data || error.message);
-    throw error;
-  }
-}
-
-// Função para verificar status do PIX via AbacatePay
-async function checkAbacatePayPixStatus(pixId) {
-  if (!ABACATEPAY_API_KEY) {
-    throw new Error('ABACATEPAY_API_KEY não configurada');
-  }
-
-  try {
-    const response = await axios.get(`${ABACATEPAY_API_URL}/pixQrCode/check`, {
-      params: { id: pixId },
-      headers: {
-        'Authorization': `Bearer ${ABACATEPAY_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    return response.data;
-  } catch (error) {
-    console.error('[AbacatePay] Erro ao verificar status:', error.response?.data || error.message);
     throw error;
   }
 }
@@ -1382,13 +1263,10 @@ app.get('/api/diagnostics', requireLogin, async (req, res) => {
         name: process.env.DB_NAME || 'não definido',
         user_configured: !!process.env.DB_USER
       },
-      ondapay: {
-        client_id_configured: !!process.env.ONDAPAY_CLIENT_ID,
-        webhook_url: process.env.WEBHOOK_URL || 'não definido'
-      },
-      abacatepay: {
-        api_key_configured: !!process.env.ABACATEPAY_API_KEY,
-        webhook_url: process.env.ABACATEPAY_WEBHOOK_URL || 'não definido'
+      ciabra: {
+        public_key_configured: !!process.env.CIABRA_PUBLIC_KEY,
+        private_key_configured: !!process.env.CIABRA_PRIVATE_KEY,
+        webhook_url: CIABRA_WEBHOOK_URL || 'não definido'
       },
       payment: {
         active_gateway: cachedActiveGateway || 'não carregado ainda'
@@ -1514,50 +1392,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
       let qrCodeBase64Result;
       let ciabraInstallmentId = null; // Para armazenar installmentId da CIABRA
 
-      if (activeGateway === 'abacatepay') {
-        // --- ABACATEPAY ---
-        // Limita description a 37 caracteres (limite da AbacatePay)
-        let abacateDescription = productTitle || 'Pagamento';
-        if (abacateDescription.length > 37) {
-          abacateDescription = abacateDescription.substring(0, 34) + '...';
-        }
-
-        // Formata telefone: remove caracteres não numéricos
-        const cleanPhone = telefone.replace(/\D/g, '');
-
-        const abacatePayload = {
-          amount: value, // AbacatePay espera valor em centavos
-          expiresIn: 1800, // 30 minutos em segundos
-          description: abacateDescription,
-          customer: {
-            name: nome,
-            cellphone: cleanPhone,
-            email: sanitizedEmail,
-            taxId: cpf.replace(/\D/g, '') // CPF apenas números
-          },
-          metadata: {
-            external_id: purchaseRecord.id.toString(),
-            product_title: productTitle
-          }
-        };
-
-        console.log('[GERARQRCODE] 📤 Enviando para AbacatePay...');
-        console.log('[GERARQRCODE] 📦 Payload:', JSON.stringify(abacatePayload, null, 2));
-
-        const abacateResponse = await createAbacatePayPixQRCode(abacatePayload);
-
-        // AbacatePay retorna: { data: { id, brCode, brCodeBase64, status, ... } }
-        const abacateData = abacateResponse.data || abacateResponse;
-        transactionIdResult = abacateData.id;
-        qrCodeResult = abacateData.brCode;
-        // AbacatePay retorna base64 puro, precisa adicionar prefixo para exibição
-        qrCodeBase64Result = abacateData.brCodeBase64;
-
-        console.log('[GERARQRCODE] 📦 Resposta da AbacatePay recebida:');
-        console.log(`  - Transaction ID: ${transactionIdResult}`);
-        console.log(`  - QR Code gerado: ${qrCodeResult ? 'Sim' : 'Não'}`);
-        console.log(`  - Base64 presente: ${qrCodeBase64Result ? 'Sim' : 'Não'}`);
-      } else if (activeGateway === 'ciabra') {
+      if (activeGateway === 'ciabra') {
         // --- CIABRA ---
         // Debug: Log valores recebidos
         console.log('[CIABRA DEBUG] ====== INÍCIO DO PROCESSAMENTO ======');
@@ -1757,47 +1592,6 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         console.log(`  - Invoice ID: ${transactionIdResult}`);
         console.log(`  - PIX Code: ${qrCodeResult ? 'Encontrado' : 'NÃO encontrado'}`);
         console.log(`  - QR Image: ${qrCodeBase64Result ? 'Encontrado' : 'NÃO encontrado'}`);
-      } else if (activeGateway === 'ondapay') {
-        // --- ONDAPAY ---
-        const ondaPayload = {
-          amount: parseFloat((value / 100).toFixed(2)),
-          external_id: purchaseRecord.id.toString(),
-          webhook: WEBHOOK_URL,
-          description: `${productTitle} - ${productDescription || ''}`,
-          dueDate: dueDateFormatted,
-          payer: { name: nome, document: cpf.replace(/\D/g, ''), email: sanitizedEmail }
-        };
-
-        // Obtém token e faz chamada à API OndaPay
-        let token = await getOndaPayToken();
-        let response;
-
-        try {
-          // Primeira tentativa com o token atual
-          response = await axios.post(`${ONDAPAY_API_URL}/api/v1/deposit/pix`, ondaPayload, {
-            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }
-          });
-        } catch (error) {
-          // Se a primeira tentativa falhar com erro 401, o token provavelmente expirou
-          if (error.response && error.response.status === 401) {
-            console.log("Token da OndaPay expirado. Renovando e tentando novamente...");
-            token = await getOndaPayToken(true);
-            response = await axios.post(`${ONDAPAY_API_URL}/api/v1/deposit/pix`, ondaPayload, {
-              headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }
-            });
-          } else {
-            throw error;
-          }
-        }
-
-        const data = response.data;
-        transactionIdResult = data.id_transaction;
-        qrCodeResult = data.qrcode;
-        qrCodeBase64Result = data.qrcode_base64;
-
-        console.log('[GERARQRCODE] 📦 Resposta da OndaPay recebida:');
-        console.log(`  - Transaction ID: ${transactionIdResult}`);
-        console.log(`  - QR Code gerado: ${qrCodeResult ? 'Sim' : 'Não'}`);
       }
 
       // Atualiza com transactionId dentro da mesma transação
@@ -1886,17 +1680,6 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
       errorCode = error.response.status;
       errorDetails = apiError;
 
-      // Tratamento para AbacatePay
-      if (apiError.error) {
-        errorMessage = `[AbacatePay] ${apiError.error}`;
-      }
-
-      // Tratamento para OndaPay
-      if (apiError.msg) {
-        const msgValue = typeof apiError.msg === 'object' ? Object.values(apiError.msg)[0] : apiError.msg;
-        errorMessage = `[OndaPay] ${msgValue}`;
-      }
-
       // Tratamento para CIABRA
       if (apiError.message) {
         errorMessage = apiError.message;
@@ -1926,218 +1709,6 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         responseStatus: error.response?.status
       }
     });
-  }
-});
-
-// CORRIGIDO: Webhook com verificação de assinatura HMAC DESATIVADA
-app.post('/ondapay-webhook', webhookLimiter, async (req, res) => {
-    console.log('\n=====================================');
-    console.log('🔔 [WEBHOOK LOG] Webhook Recebido');
-    console.log('📅 Timestamp:', new Date().toISOString());
-    console.log('🌐 IP:', req.ip);
-    console.log('📦 Headers:', JSON.stringify(req.headers, null, 2));
-    console.log('📄 Body:', JSON.stringify(req.body, null, 2));
-    console.log('=====================================\n');
-
-    try {
-      // ALTERAÇÃO: Comentado para permitir webhook sem assinatura
-      /*
-      const signature = req.headers['x-ondapay-signature'];
-
-      if (!signature) {
-        console.error('[WEBHOOK] ❌ Assinatura ausente. IP:', req.ip);
-        return res.status(401).json({ error: 'Missing signature' });
-      }
-
-      console.log('[WEBHOOK] 🔐 Validando assinatura HMAC...');
-
-      // Calcular HMAC esperado
-      const computedSignature = crypto
-        .createHmac('sha256', process.env.ONDAPAY_WEBHOOK_SECRET)
-        .update(JSON.stringify(req.body))
-        .digest('hex');
-
-      // Comparação timing-safe
-      if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(computedSignature))) {
-        console.error('[WEBHOOK] ❌ Assinatura inválida! IP:', req.ip);
-        // CORREÇÃO: Não logar assinaturas em produção
-        if (process.env.NODE_ENV !== 'production') {
-          console.error('[WEBHOOK] Recebida:', signature);
-          console.error('[WEBHOOK] Esperada:', computedSignature);
-        }
-        return res.status(401).json({ error: 'Invalid signature' });
-      }
-
-      console.log('[WEBHOOK] ✅ Assinatura HMAC válida');
-      */
-
-      console.log('[WEBHOOK] ⚠️ Validação de assinatura desativada (OndaPay). Processando diretamente...');
-
-      // Processar webhook
-      const { status, transaction_id, external_id } = req.body;
-      if (!status || !transaction_id || !external_id) {
-        console.warn(`[WEBHOOK LOG] ⚠️  Webhook recebido com dados incompletos.`, req.body);
-        return res.status(400).send('Dados do webhook incompletos.');
-      }
-
-      console.log(`[WEBHOOK LOG] 📊 Dados extraídos:`);
-      console.log(`  - Status: ${status}`);
-      console.log(`  - Transaction ID: ${transaction_id}`);
-      console.log(`  - External ID (purchase ID): ${external_id}`);
-
-      if (status.toUpperCase() === 'PAID_OUT') {
-        console.log(`[WEBHOOK LOG] 💰 Status 'PAID_OUT' detectado para external_id: ${external_id}`);
-        const purchaseId = parseInt(external_id, 10);
-        if (isNaN(purchaseId)) {
-          console.error(`[WEBHOOK LOG] ❌ Erro: external_id '${external_id}' não é um número válido.`);
-          return res.status(400).send('external_id inválido.');
-        }
-
-        // CORREÇÃO: Busca o registro primeiro para verificar se já foi processado (idempotência)
-        const purchase = await PurchaseHistory.findByPk(purchaseId);
-
-        if (!purchase) {
-          console.error(`[WEBHOOK LOG] ❌ Erro: Compra com ID ${purchaseId} não encontrada.`);
-          return res.status(404).send('Compra não encontrada.');
-        }
-
-        console.log(`[WEBHOOK LOG] 📋 Compra encontrada:`);
-        console.log(`  - Nome: ${purchase.nome}`);
-        console.log(`  - Transaction ID: ${purchase.transactionId}`);
-        console.log(`  - Status atual: ${purchase.status}`);
-
-        // CORREÇÃO: Se já foi processado, retorna sucesso sem fazer nada (idempotência)
-        if (purchase.status === 'Sucesso') {
-          console.log(`[WEBHOOK LOG] ⚠️  Webhook duplicado ignorado. Compra ${purchaseId} já foi processada.`);
-          return res.status(200).send({ status: 'already_processed' });
-        }
-
-        // Atualiza o status
-        console.log(`[WEBHOOK LOG] 🔄 Atualizando o registro com ID: ${purchaseId} de '${purchase.status}' para 'Sucesso'...`);
-        await purchase.update({ status: 'Sucesso' });
-        console.log(`[WEBHOOK LOG] ✅ SUCESSO! Compra ID ${purchaseId} atualizada para 'Sucesso'.`);
-        console.log(`[WEBHOOK LOG] 📧 Enviando notificação push...`);
-
-        // Envia notificação push apenas uma vez
-        sendPushNotification(
-          'Venda Paga com Sucesso!',
-          `O pagamento de ${purchase.nome} foi confirmado.`
-        );
-      } else {
-        console.log(`[WEBHOOK LOG] ℹ️  Status recebido foi '${status}' (não é PAID_OUT). Nenhuma ação necessária.`);
-      }
-
-      console.log('[WEBHOOK LOG] ✅ Respondendo com status 200 OK\n');
-      res.status(200).send({ status: 'ok' });
-    } catch (error) {
-      console.error("[WEBHOOK LOG] ❌ Erro crítico no processamento do webhook:", error.message);
-      console.error("[WEBHOOK LOG] Stack trace:", error.stack);
-      res.status(500).send('Erro interno ao processar webhook.');
-    }
-  });
-
-// NOVO: Webhook para AbacatePay
-app.post('/abacatepay-webhook', webhookLimiter, async (req, res) => {
-  console.log('\n=====================================');
-  console.log('🥑 [ABACATEPAY WEBHOOK] Webhook Recebido');
-  console.log('📅 Timestamp:', new Date().toISOString());
-  console.log('🌐 IP:', req.ip);
-  console.log('📦 Headers:', JSON.stringify(req.headers, null, 2));
-  console.log('📄 Body:', JSON.stringify(req.body, null, 2));
-  console.log('=====================================\n');
-
-  try {
-    // AbacatePay envia o evento no formato:
-    // { event: "BILLING.PAID", data: { billing: { id, status, ... }, pixQrCode: { id, ... } } }
-    // ou para PIX QR Code direto:
-    // { event: "PIX_QR_CODE.PAID", data: { pixQrCode: { id, status, metadata, ... } } }
-    const { event, data } = req.body;
-
-    if (!event || !data) {
-      console.warn('[ABACATEPAY WEBHOOK] ⚠️ Webhook recebido com dados incompletos.', req.body);
-      return res.status(400).json({ error: 'Dados do webhook incompletos.' });
-    }
-
-    console.log(`[ABACATEPAY WEBHOOK] 📊 Evento: ${event}`);
-
-    // Verifica se é um evento de pagamento confirmado
-    const paidEvents = ['BILLING.PAID', 'PIX_QR_CODE.PAID', 'billing.paid', 'pixQrCode.paid'];
-    if (!paidEvents.includes(event)) {
-      console.log(`[ABACATEPAY WEBHOOK] ℹ️ Evento '${event}' não é de pagamento. Ignorando.`);
-      return res.status(200).json({ status: 'ignored', event });
-    }
-
-    // Extrai o ID da transação
-    let transactionId = null;
-    let externalId = null;
-
-    // Tenta extrair de diferentes estruturas possíveis
-    if (data.pixQrCode) {
-      transactionId = data.pixQrCode.id;
-      // Metadata pode conter external_id
-      if (data.pixQrCode.metadata && data.pixQrCode.metadata.external_id) {
-        externalId = data.pixQrCode.metadata.external_id;
-      }
-    }
-    if (data.billing) {
-      transactionId = transactionId || data.billing.id;
-      if (data.billing.metadata && data.billing.metadata.external_id) {
-        externalId = externalId || data.billing.metadata.external_id;
-      }
-    }
-
-    console.log(`[ABACATEPAY WEBHOOK] 📊 Transaction ID: ${transactionId}`);
-    console.log(`[ABACATEPAY WEBHOOK] 📊 External ID: ${externalId}`);
-
-    if (!transactionId) {
-      console.error('[ABACATEPAY WEBHOOK] ❌ Não foi possível extrair o ID da transação');
-      return res.status(400).json({ error: 'Transaction ID não encontrado.' });
-    }
-
-    // Busca a compra pelo transactionId OU pelo externalId (purchase.id)
-    let purchase = await PurchaseHistory.findOne({ where: { transactionId: transactionId } });
-
-    if (!purchase && externalId) {
-      // Tenta buscar pelo external_id (que é o purchase.id)
-      purchase = await PurchaseHistory.findByPk(parseInt(externalId, 10));
-    }
-
-    if (!purchase) {
-      console.error(`[ABACATEPAY WEBHOOK] ❌ Compra não encontrada para transactionId: ${transactionId}`);
-      return res.status(404).json({ error: 'Compra não encontrada.' });
-    }
-
-    console.log(`[ABACATEPAY WEBHOOK] 📋 Compra encontrada:`);
-    console.log(`  - ID: ${purchase.id}`);
-    console.log(`  - Nome: ${purchase.nome}`);
-    console.log(`  - Transaction ID: ${purchase.transactionId}`);
-    console.log(`  - Status atual: ${purchase.status}`);
-
-    // Idempotência: Se já foi processado, retorna sucesso
-    if (purchase.status === 'Sucesso') {
-      console.log(`[ABACATEPAY WEBHOOK] ⚠️ Webhook duplicado ignorado. Compra ${purchase.id} já foi processada.`);
-      return res.status(200).json({ status: 'already_processed' });
-    }
-
-    // Atualiza o status
-    console.log(`[ABACATEPAY WEBHOOK] 🔄 Atualizando compra ${purchase.id} para 'Sucesso'...`);
-    await purchase.update({ status: 'Sucesso' });
-    console.log(`[ABACATEPAY WEBHOOK] ✅ Compra ${purchase.id} atualizada para 'Sucesso'.`);
-
-    // Envia notificação push
-    console.log('[ABACATEPAY WEBHOOK] 📧 Enviando notificação push...');
-    sendPushNotification(
-      'Venda Paga com Sucesso!',
-      `O pagamento de ${purchase.nome} foi confirmado (AbacatePay).`
-    );
-
-    console.log('[ABACATEPAY WEBHOOK] ✅ Webhook processado com sucesso!\n');
-    res.status(200).json({ status: 'ok' });
-
-  } catch (error) {
-    console.error('[ABACATEPAY WEBHOOK] ❌ Erro crítico:', error.message);
-    console.error('[ABACATEPAY WEBHOOK] Stack:', error.stack);
-    res.status(500).json({ error: 'Erro interno ao processar webhook.' });
   }
 });
 
@@ -2465,11 +2036,10 @@ app.get('/api/debug-payment/:transactionId', requireLogin, async (req, res) => {
         updatedAt: purchase.updatedAt
       },
       webhookInfo: {
-        webhookUrl: process.env.WEBHOOK_URL || 'NÃO CONFIGURADO',
-        webhookSecretConfigured: !!process.env.ONDAPAY_WEBHOOK_SECRET,
-        isLocalhost: (process.env.WEBHOOK_URL || '').includes('localhost'),
-        warning: (process.env.WEBHOOK_URL || '').includes('localhost')
-          ? '⚠️ WEBHOOK_URL aponta para localhost. OndaPay não consegue enviar webhooks para localhost!'
+        webhookUrl: CIABRA_WEBHOOK_URL || 'NÃO CONFIGURADO',
+        isLocalhost: (CIABRA_WEBHOOK_URL || '').includes('localhost'),
+        warning: (CIABRA_WEBHOOK_URL || '').includes('localhost')
+          ? '⚠️ CIABRA_WEBHOOK_URL aponta para localhost. CIABRA não consegue enviar webhooks para localhost!'
           : null
       },
       polling: {
@@ -2609,16 +2179,15 @@ app.get('/api/payment-flow-status', requireLogin, async (req, res) => {
         step5_thankYouPage: purchase.status === 'Sucesso' ? 'Deveria ter sido exibida' : 'Aguardando pagamento'
       },
       webhook: {
-        webhookUrl: process.env.WEBHOOK_URL || 'NÃO CONFIGURADO',
-        webhookSecretConfigured: !!process.env.ONDAPAY_WEBHOOK_SECRET,
-        isLocalhost: (process.env.WEBHOOK_URL || '').includes('localhost'),
-        warning: (process.env.WEBHOOK_URL || '').includes('localhost')
-          ? '⚠️ WEBHOOK_URL aponta para localhost. OndaPay NÃO consegue enviar webhooks para localhost!'
+        webhookUrl: CIABRA_WEBHOOK_URL || 'NÃO CONFIGURADO',
+        isLocalhost: (CIABRA_WEBHOOK_URL || '').includes('localhost'),
+        warning: (CIABRA_WEBHOOK_URL || '').includes('localhost')
+          ? '⚠️ CIABRA_WEBHOOK_URL aponta para localhost. CIABRA NÃO consegue enviar webhooks para localhost!'
           : null
       },
       nextSteps: purchase.status === 'Gerado' ? [
         '1. Cliente deve efetuar o pagamento via Pix',
-        '2. OndaPay enviará webhook para o servidor quando pagamento for confirmado',
+        '2. CIABRA enviará webhook para o servidor quando pagamento for confirmado',
         '3. Servidor atualizará status para "Sucesso"',
         '4. Cliente polling detectará mudança e mostrará página de agradecimento',
         '',
@@ -2633,8 +2202,7 @@ app.get('/api/payment-flow-status', requireLogin, async (req, res) => {
         statusIsGerado: purchase.status === 'Gerado',
         possibleIssues: purchase.status === 'Gerado' ? [
           '🔍 Webhook não está chegando - verifique URL e conectividade',
-          '🔐 HMAC signature pode estar falhando - verifique ONDAPAY_WEBHOOK_SECRET',
-          '📡 Servidor pode estar inacessível para OndaPay',
+          '📡 Servidor pode estar inacessível para CIABRA',
           '⏱️ Pagamento pode ainda não ter sido efetuado'
         ] : []
       }
@@ -2745,14 +2313,6 @@ app.get('/api/payment-settings', requireLogin, async (req, res) => {
     const settings = {
       activeGateway,
       gateways: {
-        ondapay: {
-          configured: !!(ONDAPAY_CLIENT_ID && ONDAPAY_CLIENT_SECRET),
-          webhookUrl: WEBHOOK_URL
-        },
-        abacatepay: {
-          configured: !!ABACATEPAY_API_KEY,
-          webhookUrl: ABACATEPAY_WEBHOOK_URL
-        },
         ciabra: {
           configured: !!(CIABRA_PUBLIC_KEY && CIABRA_PRIVATE_KEY),
           webhookUrl: CIABRA_WEBHOOK_URL
@@ -2777,18 +2337,6 @@ app.post('/api/payment-settings/gateway', requireLogin, applyCsrf, async (req, r
     }
 
     // Validar se o gateway escolhido está configurado
-    if (gateway === 'ondapay' && (!ONDAPAY_CLIENT_ID || !ONDAPAY_CLIENT_SECRET)) {
-      return res.status(400).json({
-        error: 'OndaPay não está configurado. Configure ONDAPAY_CLIENT_ID e ONDAPAY_CLIENT_SECRET no .env'
-      });
-    }
-
-    if (gateway === 'abacatepay' && !ABACATEPAY_API_KEY) {
-      return res.status(400).json({
-        error: 'AbacatePay não está configurado. Configure ABACATEPAY_API_KEY no .env'
-      });
-    }
-
     if (gateway === 'ciabra' && (!CIABRA_PUBLIC_KEY || !CIABRA_PRIVATE_KEY)) {
       return res.status(400).json({
         error: 'CIABRA não está configurado. Configure CIABRA_PUBLIC_KEY e CIABRA_PRIVATE_KEY no .env'
@@ -2819,40 +2367,7 @@ app.post('/api/payment-settings/test', requireLogin, applyCsrf, async (req, res)
 
     let testResult = { success: false, message: '' };
 
-    if (gateway === 'ondapay') {
-      if (!ONDAPAY_CLIENT_ID || !ONDAPAY_CLIENT_SECRET) {
-        testResult = { success: false, message: 'Credenciais OndaPay não configuradas.' };
-      } else {
-        try {
-          await getOndaPayToken(true); // Força renovação do token
-          testResult = { success: true, message: 'Conexão com OndaPay estabelecida com sucesso!' };
-        } catch (error) {
-          testResult = { success: false, message: `Erro ao conectar com OndaPay: ${error.message}` };
-        }
-      }
-    } else if (gateway === 'abacatepay') {
-      if (!ABACATEPAY_API_KEY) {
-        testResult = { success: false, message: 'API Key da AbacatePay não configurada.' };
-      } else {
-        try {
-          // Tenta fazer uma chamada simples para verificar a conexão
-          const response = await axios.get(`${ABACATEPAY_API_URL}/store/get`, {
-            headers: {
-              'Authorization': `Bearer ${ABACATEPAY_API_KEY}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          testResult = {
-            success: true,
-            message: 'Conexão com AbacatePay estabelecida com sucesso!',
-            storeInfo: response.data?.data?.name || 'Loja conectada'
-          };
-        } catch (error) {
-          const errorMsg = error.response?.data?.error || error.message;
-          testResult = { success: false, message: `Erro ao conectar com AbacatePay: ${errorMsg}` };
-        }
-      }
-    } else if (gateway === 'ciabra') {
+    if (gateway === 'ciabra') {
       if (!CIABRA_PUBLIC_KEY || !CIABRA_PRIVATE_KEY) {
         testResult = { success: false, message: 'Credenciais CIABRA não configuradas.' };
       } else {
@@ -3067,7 +2582,7 @@ app.post('/api/devices', requireLogin, applyCsrf, async (req, res) => {
 });
 
 // NOVO: Rota para atualizar status de uma transação manualmente
-// IMPORTANTE: A OndaPay não possui endpoint GET para consultar status
+// IMPORTANTE: O sistema funciona exclusivamente via webhooks para confirmação de pagamento
 // O sistema funciona exclusivamente via webhooks
 // Esta rota permite atualização manual em casos de falha de webhook
 app.post('/api/update-transaction-status', requireLogin, applyCsrf, async (req, res) => {
@@ -3132,7 +2647,7 @@ app.post('/api/update-transaction-status', requireLogin, applyCsrf, async (req, 
 const PORT = process.env.PORT || 3000;
 
 // CORREÇÃO: Função de inicialização assíncrona
-// Inicializa Redis e OndaPay ANTES de iniciar o servidor
+// Inicializa Redis e CIABRA ANTES de iniciar o servidor
 async function startServer() {
   try {
     console.log('🚀 Inicializando servidor...');
@@ -3176,10 +2691,12 @@ async function startServer() {
     });
     console.log('✅ CSRF protection configurado');
 
-    // Obtém token OndaPay antes de aceitar requisições
-    console.log('📡 Obtendo token OndaPay...');
-    await getOndaPayToken();
-    console.log('✅ Token OndaPay obtido com sucesso');
+    // Verifica credenciais CIABRA antes de aceitar requisições
+    if (CIABRA_PUBLIC_KEY && CIABRA_PRIVATE_KEY) {
+      console.log('✅ Credenciais CIABRA configuradas');
+    } else {
+      console.warn('⚠️ Credenciais CIABRA não configuradas. Configure CIABRA_PUBLIC_KEY e CIABRA_PRIVATE_KEY no .env');
+    }
 
     // Agora sim inicia o servidor
     const server = app.listen(PORT, () => {
