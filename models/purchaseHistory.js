@@ -35,11 +35,11 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: 0,
     },
-    // Gateway de pagamento usado (ondapay ou abacatepay)
+    // Gateway de pagamento usado (ciabra)
     paymentGateway: {
       type: DataTypes.STRING(50),
       allowNull: true, // Permitir null para registros antigos
-      defaultValue: 'ondapay',
+      defaultValue: 'ciabra',
     }
   }, {
     tableName: 'purchase_histories',

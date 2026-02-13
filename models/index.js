@@ -86,7 +86,7 @@ async function addMissingColumns() {
       console.log('Adicionando coluna paymentGateway à tabela purchase_histories...');
       await sequelize.query(`
         ALTER TABLE purchase_histories
-        ADD COLUMN paymentGateway VARCHAR(50) DEFAULT 'ondapay'
+        ADD COLUMN paymentGateway VARCHAR(50) DEFAULT 'ciabra'
       `);
       console.log('Coluna paymentGateway adicionada com sucesso!');
     }

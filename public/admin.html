@@ -928,38 +928,6 @@
             <p style="color: #7f8c8d; margin-bottom: 20px;">Selecione o gateway de pagamento que será usado para processar os pagamentos PIX.</p>
 
             <div class="gateway-grid" id="gatewayGrid">
-              <!-- Gateway OndaPay -->
-              <div class="gateway-card" id="gatewayOndapay" data-gateway="ondapay">
-                <div class="gateway-header">
-                  <span class="gateway-icon">🌊</span>
-                  <h3>OndaPay</h3>
-                </div>
-                <div class="gateway-status" id="ondapayStatus">
-                  <span class="status-indicator loading"></span>
-                  <span>Verificando...</span>
-                </div>
-                <div class="gateway-actions">
-                  <button class="gateway-select-btn" onclick="selectGateway('ondapay')">Selecionar</button>
-                  <button class="gateway-test-btn" onclick="testGateway('ondapay')">Testar</button>
-                </div>
-              </div>
-
-              <!-- Gateway AbacatePay -->
-              <div class="gateway-card" id="gatewayAbacatepay" data-gateway="abacatepay">
-                <div class="gateway-header">
-                  <span class="gateway-icon">🥑</span>
-                  <h3>AbacatePay</h3>
-                </div>
-                <div class="gateway-status" id="abacatepayStatus">
-                  <span class="status-indicator loading"></span>
-                  <span>Verificando...</span>
-                </div>
-                <div class="gateway-actions">
-                  <button class="gateway-select-btn" onclick="selectGateway('abacatepay')">Selecionar</button>
-                  <button class="gateway-test-btn" onclick="testGateway('abacatepay')">Testar</button>
-                </div>
-              </div>
-
               <!-- Gateway CIABRA -->
               <div class="gateway-card" id="gatewayCiabra" data-gateway="ciabra">
                 <div class="gateway-header">
@@ -1657,7 +1625,7 @@
       });
 
       const choice = prompt(
-        `${optionsHtml}\n⚠️ ATENÇÃO: Esta é uma atualização MANUAL.\nO webhook da OndaPay é a forma recomendada de atualizar status.\n\nDigite o número da opção (1-3):`,
+        `${optionsHtml}\n⚠️ ATENÇÃO: Esta é uma atualização MANUAL.\nO webhook da CIABRA é a forma recomendada de atualizar status.\n\nDigite o número da opção (1-3):`,
         ''
       );
 
@@ -1875,16 +1843,12 @@
         const activeGatewayName = document.getElementById('activeGatewayName');
         if (activeGatewayName) {
           const gatewayNames = {
-            'ondapay': 'OndaPay 🌊',
-            'abacatepay': 'AbacatePay 🥑',
             'ciabra': 'CIABRA 💳'
           };
           activeGatewayName.textContent = gatewayNames[settings.activeGateway] || settings.activeGateway;
         }
 
         // Atualiza cards dos gateways
-        updateGatewayCard('ondapay', settings.gateways.ondapay, settings.activeGateway === 'ondapay');
-        updateGatewayCard('abacatepay', settings.gateways.abacatepay, settings.activeGateway === 'abacatepay');
         updateGatewayCard('ciabra', settings.gateways.ciabra, settings.activeGateway === 'ciabra');
 
       } catch (error) {
@@ -1928,8 +1892,6 @@
     // Seleciona um gateway como ativo
     async function selectGateway(gateway) {
       const gatewayNames = {
-        'ondapay': 'OndaPay',
-        'abacatepay': 'AbacatePay',
         'ciabra': 'CIABRA'
       };
       if (!confirm(`Deseja alterar o gateway de pagamento para ${gatewayNames[gateway] || gateway}?\n\nNovos pagamentos serão processados pelo gateway selecionado.`)) {

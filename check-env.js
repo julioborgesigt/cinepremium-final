@@ -7,9 +7,9 @@ const requiredVars = [
   'DB_USER',
   'DB_NAME',
   'SESSION_SECRET',
-  'ONDAPAY_EMAIL',
-  'ONDAPAY_PASSWORD',
-  'WEBHOOK_URL'
+  'CIABRA_PUBLIC_KEY',
+  'CIABRA_PRIVATE_KEY',
+  'CIABRA_WEBHOOK_URL'
 ];
 
 const optionalVars = [
