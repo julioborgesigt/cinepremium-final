@@ -1,14 +1,17 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:;">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; font-src 'self' data: https:;">
   <title>CinePremium Edit</title>
   <link rel="stylesheet" href="/styles.css">
   <!-- Pré-conecta ao próprio servidor para acelerar fetch dos produtos -->
   <link rel="preconnect" href="/">
 </head>
+
 <body>
   <div class="container" id="mainContainer">
     <div id="cabeçalho">
@@ -26,7 +29,9 @@
     </div>
     <div id="purchaseContainer" class="purchase-container">
       <h1>Detalhes da Compra</h1>
-      <h2><p id="productInfo"></p></h2>
+      <h2>
+        <p id="productInfo"></p>
+      </h2>
       <input type="text" id="nome" placeholder="Digite seu nome completo">
       <input type="tel" id="telefone" placeholder="Digite seu telefone (DDD + número)">
       <input type="text" id="cpf" placeholder="Digite seu CPF (apenas números)">
@@ -54,8 +59,9 @@
       <span>&copy; 2025 - Todos os direitos reservados</span>
       <span class="email-icon">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-          <path d="M0 0h24v24H0z" fill="none"/>
-          <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+          <path d="M0 0h24v24H0z" fill="none" />
+          <path
+            d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
         </svg>
       </span>
       <span>cinepremium.sac@gmail.com</span>
@@ -63,4 +69,5 @@
   </div>
   <script src="/app.js" defer></script>
 </body>
+
 </html>

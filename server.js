@@ -239,7 +239,7 @@ app.use(helmet({
       ],
       imgSrc: ["'self'", "data:", "https:"],
       styleSrc: ["'self'", "'unsafe-inline'"], // unsafe-inline necessário por enquanto
-      fontSrc: ["'self'"],
+      fontSrc: ["'self'", "data:", "https:"],
       objectSrc: ["'none'"],
       upgradeInsecureRequests: []
     }
