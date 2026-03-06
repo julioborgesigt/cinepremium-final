@@ -5,6 +5,7 @@ const admin = require('firebase-admin');
 const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
+const compression = require('compression'); // NOVO: Compressão de respostas (Gzip/Brotli)
 const axios = require('axios'); // Utilize axios para requisições HTTP
 const puppeteer = require('puppeteer'); // Para automação de navegador
 const { Op } = require('sequelize');
@@ -257,7 +258,20 @@ app.use(globalLimiter);
 app.use(bodyParser.json());
 // NOVO: Adicionado para interpretar dados de formulários HTML (para o login)
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+
+// NOVO: Middleware de compressão (deve vir antes de enviar arquivos estáticos ou JSON)
+app.use(compression());
+
+// MODIFICADO: Configuração de cache para arquivos estáticos
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '7d', // Cache forte de 7 dias para imagens, css, js
+  setHeaders: (res, filePath) => {
+    if (path.extname(filePath) === '.html') {
+      // HTML não deve ter cache longo para garantir que atualizações de versão sejam pegas
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  }
+}));
 
 // CORREÇÃO: Configuração do cliente Redis para sessões persistentes
 // Isso resolve problemas de vazamento de memória e permite scaling horizontal
@@ -454,7 +468,7 @@ async function sendPushNotification(title, body) {
     console.log('[PUSH LOG] Enviando a seguinte mensagem para o Firebase:', JSON.stringify(message, null, 2));
 
     const response = await admin.messaging().sendEachForMulticast(message);
-    
+
     console.log('[PUSH LOG] Resposta do Firebase recebida.');
     console.log('[PUSH LOG] Sucesso:', response.successCount);
     console.log('[PUSH LOG] Falha:', response.failureCount);
@@ -469,7 +483,7 @@ async function sendPushNotification(title, body) {
 
           // Se token não está registrado ou é inválido, marca para remoção
           if (resp.error?.code === 'messaging/registration-token-not-registered' ||
-              resp.error?.code === 'messaging/invalid-registration-token') {
+            resp.error?.code === 'messaging/invalid-registration-token') {
             tokensToRemove.push(tokens[index]);
           }
         }
@@ -793,12 +807,12 @@ async function createCiabraCustomer(customerData) {
     console.error('[CIABRA] ===== ERRO AO CRIAR CLIENTE =====');
     console.error('[CIABRA] Error message:', error.message);
     console.error('[CIABRA] Error stack:', error.stack);
-    
+
     if (error.response) {
       console.error('[CIABRA] HTTP Status:', error.response.status);
       console.error('[CIABRA] Response data:', JSON.stringify(error.response.data, null, 2));
       console.error('[CIABRA] Response headers:', JSON.stringify(error.response.headers, null, 2));
-      
+
       // Se o erro for de cliente duplicado, pode ser que já exista
       if (error.response.status === 409 || error.response.status === 400) {
         console.log('[CIABRA] Cliente pode já existir. Detalhes:', error.response.data);
@@ -809,7 +823,7 @@ async function createCiabraCustomer(customerData) {
       console.error('[CIABRA] Error setting up request:', error.message);
     }
     console.error('[CIABRA] ========================================');
-    
+
     throw error;
   }
 }
@@ -838,7 +852,7 @@ async function createCiabraInvoice(payload) {
     console.error('[CIABRA] ===== ERRO AO CRIAR COBRANÇA =====');
     console.error('[CIABRA] Error message:', error.message);
     console.error('[CIABRA] Error stack:', error.stack);
-    
+
     if (error.response) {
       console.error('[CIABRA] HTTP Status:', error.response.status);
       console.error('[CIABRA] Response data:', JSON.stringify(error.response.data, null, 2));
@@ -849,7 +863,7 @@ async function createCiabraInvoice(payload) {
       console.error('[CIABRA] Error setting up request:', error.message);
     }
     console.error('[CIABRA] ========================================');
-    
+
     throw error;
   }
 }
@@ -874,7 +888,7 @@ async function getCiabraInvoiceDetails(invoiceId) {
     console.error('[CIABRA] ===== ERRO AO OBTER DETALHES DO INVOICE =====');
     console.error('[CIABRA] Error message:', error.message);
     console.error('[CIABRA] Error stack:', error.stack);
-    
+
     if (error.response) {
       console.error('[CIABRA] HTTP Status:', error.response.status);
       console.error('[CIABRA] Response data:', JSON.stringify(error.response.data, null, 2));
@@ -885,7 +899,7 @@ async function getCiabraInvoiceDetails(invoiceId) {
       console.error('[CIABRA] Error setting up request:', error.message);
     }
     console.error('[CIABRA] ====================================================');
-    
+
     throw error;
   }
 }
@@ -895,7 +909,7 @@ async function generateCiabraPixWithAutomation(installmentId) {
   let browser = null;
   try {
     addDebugLog('[CIABRA AUTOMATION] Iniciando automação para installment:', installmentId);
-    
+
     // Lançar navegador headless
     browser = await puppeteer.launch({
       headless: true,
@@ -910,17 +924,17 @@ async function generateCiabraPixWithAutomation(installmentId) {
         '--disable-extensions'
       ]
     });
-    
+
     const page = await browser.newPage();
-    
+
     // Interceptar requisições de rede para capturar a resposta do PIX
     let pixPaymentData = null;
-    
+
     await page.setRequestInterception(true);
     page.on('request', (request) => {
       request.continue();
     });
-    
+
     page.on('response', async (response) => {
       const url = response.url();
       if (url.includes('/api/payments/pix')) {
@@ -933,32 +947,32 @@ async function generateCiabraPixWithAutomation(installmentId) {
         }
       }
     });
-    
+
     // Acessar página de pagamento
     const paymentUrl = `https://pagar.ciabra.com.br/i/${installmentId}`;
     addDebugLog('[CIABRA AUTOMATION] Acessando:', paymentUrl);
     await page.goto(paymentUrl, { waitUntil: 'networkidle2', timeout: 30000 });
     addDebugLog('[CIABRA AUTOMATION] Página carregada com sucesso');
-    
+
     // Tirar screenshot para debug
     const screenshotPath = `/tmp/ciabra_${installmentId}_1.png`;
     await page.screenshot({ path: screenshotPath });
     addDebugLog('[CIABRA AUTOMATION] Screenshot salvo:', screenshotPath);
-    
+
     // Listar todos os botões na página
     const buttons = await page.$$eval('button', btns => btns.map(b => ({
       text: b.textContent.trim(),
       html: b.innerHTML
     })));
     addDebugLog('[CIABRA AUTOMATION] Botões encontrados:', JSON.stringify(buttons, null, 2));
-    
+
     // Aguardar elementos carregarem (página React)
     await new Promise(resolve => setTimeout(resolve, 3000));
-    
+
     // Tentar encontrar botão PIX de várias formas
     addDebugLog('[CIABRA AUTOMATION] Procurando botão PIX...');
     let pixButton = null;
-    
+
     // Método 1: Seletor CSS simples
     try {
       pixButton = await page.$('button:has-text("PIX")');
@@ -968,7 +982,7 @@ async function generateCiabraPixWithAutomation(installmentId) {
     } catch (e) {
       addDebugLog('[CIABRA AUTOMATION] Método CSS falhou:', e.message);
     }
-    
+
     // Método 2: XPath com texto (case insensitive)
     if (!pixButton) {
       try {
@@ -981,7 +995,7 @@ async function generateCiabraPixWithAutomation(installmentId) {
         addDebugLog('[CIABRA AUTOMATION] Método XPath falhou:', e.message);
       }
     }
-    
+
     // Método 3: Procurar por qualquer elemento clicável com PIX
     if (!pixButton) {
       try {
@@ -998,34 +1012,34 @@ async function generateCiabraPixWithAutomation(installmentId) {
         addDebugLog('[CIABRA AUTOMATION] Método busca manual falhou:', e.message);
       }
     }
-    
+
     if (!pixButton) {
       throw new Error('Botão PIX não encontrado na página após 3 tentativas');
     }
-    
+
     // Clicar no botão PIX
     await pixButton.click();
     addDebugLog('[CIABRA AUTOMATION] Clicou em PIX');
-    
+
     // Aguardar um pouco para o botão Pagar aparecer
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
+
     // Tirar screenshot após clicar em PIX
     const screenshotPath2 = `/tmp/ciabra_${installmentId}_2.png`;
     await page.screenshot({ path: screenshotPath2 });
     addDebugLog('[CIABRA AUTOMATION] Screenshot após PIX:', screenshotPath2);
-    
+
     // Listar botões novamente
     const buttons2 = await page.$$eval('button', btns => btns.map(b => ({
       text: b.textContent.trim(),
       html: b.innerHTML
     })));
     addDebugLog('[CIABRA AUTOMATION] Botões após clicar em PIX:', JSON.stringify(buttons2, null, 2));
-    
+
     // Procurar botão Pagar
     addDebugLog('[CIABRA AUTOMATION] Procurando botão Pagar...');
     let pagarButton = null;
-    
+
     // Método 1: XPath procurando em qualquer elemento
     try {
       const pagarButtons = await page.$x("//*[contains(text(), 'Pagar')]");
@@ -1036,7 +1050,7 @@ async function generateCiabraPixWithAutomation(installmentId) {
     } catch (e) {
       addDebugLog('[CIABRA AUTOMATION] Método XPath para Pagar falhou:', e.message);
     }
-    
+
     // Método 2: Procurar por classes Mantine Button
     if (!pagarButton) {
       try {
@@ -1053,7 +1067,7 @@ async function generateCiabraPixWithAutomation(installmentId) {
         addDebugLog('[CIABRA AUTOMATION] Método Mantine falhou:', e.message);
       }
     }
-    
+
     // Método 3: Busca manual em todos os elementos clicáveis
     if (!pagarButton) {
       try {
@@ -1070,26 +1084,26 @@ async function generateCiabraPixWithAutomation(installmentId) {
         addDebugLog('[CIABRA AUTOMATION] Busca manual para Pagar falhou:', e.message);
       }
     }
-    
+
     if (!pagarButton) {
       throw new Error('Botão Pagar não encontrado na página após 3 tentativas');
     }
-    
+
     // Clicar no botão Pagar
     await pagarButton.click();
     addDebugLog('[CIABRA AUTOMATION] Clicou em Pagar');
-    
+
     // Aguardar a resposta ser capturada
     addDebugLog('[CIABRA AUTOMATION] Aguardando resposta do pagamento...');
     await new Promise(resolve => setTimeout(resolve, 5000));
-    
+
     if (!pixPaymentData) {
       throw new Error('Não foi possível capturar dados do pagamento PIX');
     }
-    
+
     addDebugLog('[CIABRA AUTOMATION] Pagamento PIX gerado com sucesso!');
     return pixPaymentData;
-    
+
   } catch (error) {
     addDebugLog('[CIABRA AUTOMATION] ===== ERRO NA AUTOMAÇÃO =====');
     console.error('[CIABRA AUTOMATION] Error message:', error.message);
@@ -1356,7 +1370,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
     if (isNaN(value) || value <= 0) {
       return res.status(400).json({ error: "Valor do produto inválido." });
     }
-    
+
     // Verificação de tentativas de compra
     const now = new Date();
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
@@ -1490,7 +1504,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         console.log('[CIABRA DEBUG] ====== RESPOSTA DA API ======');
         console.log(JSON.stringify(ciabraResponse, null, 2));
         console.log('[CIABRA DEBUG] =============================');
-        
+
         // Log detalhado da estrutura de installments
         if (ciabraResponse.installments) {
           console.log('[CIABRA DEBUG] Installments encontrados:', ciabraResponse.installments.length);
@@ -1504,25 +1518,25 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         // CIABRA retorna o invoice com ID
         const invoiceData = ciabraResponse;
         transactionIdResult = invoiceData.id;
-        
+
         // CORREÇÃO: Gerar pagamento PIX automaticamente
         console.log('[CIABRA DEBUG] Gerando pagamento PIX automaticamente...');
         let pixPaymentData = null;
-        
+
         // Extrair installmentId da resposta do invoice
         if (ciabraResponse.installments && ciabraResponse.installments.length > 0) {
           const installmentId = ciabraResponse.installments[0].id;
           ciabraInstallmentId = installmentId; // Armazenar para uso posterior
           console.log('[CIABRA DEBUG] InstallmentId encontrado:', installmentId);
-          
+
           try {
             // Gerar pagamento PIX usando automação Puppeteer
             addDebugLog('[CIABRA] Iniciando automação Puppeteer...');
             addDebugLog(`[CIABRA] InstallmentId: ${installmentId}`);
             console.log('[CIABRA DEBUG] Gerando pagamento PIX com Puppeteer...');
-            
+
             pixPaymentData = await generateCiabraPixWithAutomation(installmentId);
-            
+
             if (pixPaymentData) {
               addDebugLog('[CIABRA] ✅ Código PIX gerado com sucesso!');
               addDebugLog(`[CIABRA] EMV: ${pixPaymentData.emv ? pixPaymentData.emv.substring(0, 50) + '...' : 'N/A'}`);
@@ -1547,14 +1561,14 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         if (pixPaymentData) {
           // O campo 'emv' contém o código PIX copia-cola
           qrCodeResult = pixPaymentData.emv || pixPaymentData.pixCode || pixPaymentData.code;
-          
+
           // Tentar obter imagem QR Code da resposta
           qrCodeBase64Result = pixPaymentData.qrCodeBase64 || pixPaymentData.base64 || null;
-          
+
           console.log('[CIABRA DEBUG] Código PIX extraído do pagamento gerado');
         } else {
           console.error('[CIABRA DEBUG] pixPaymentData não disponível, tentando extrair da resposta inicial');
-          
+
           // Fallback: tentar extrair da resposta inicial
           if (ciabraResponse.installments && ciabraResponse.installments.length > 0) {
             const installment = ciabraResponse.installments[0];
@@ -1629,13 +1643,13 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
         expirationTimestamp: expirationDate.getTime(),
         gateway: activeGateway
       };
-      
+
       // Se for CIABRA, adicionar installmentId para polling ativo
       if (activeGateway === 'ciabra' && ciabraInstallmentId) {
         resultado.installmentId = ciabraInstallmentId;
         console.log('[GERARQRCODE] 🔑 InstallmentId adicionado ao resultado:', resultado.installmentId);
       }
-      
+
       // Logs detalhados para debug
       addDebugLog(`[GERARQRCODE] ===== RESULTADO FINAL =====`);
       addDebugLog(`[GERARQRCODE] Transaction ID: ${resultado.id}`);
@@ -1644,7 +1658,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
       addDebugLog(`[GERARQRCODE] Gateway: ${resultado.gateway}`);
       addDebugLog(`[GERARQRCODE] Expira em: ${new Date(resultado.expirationTimestamp).toISOString()}`);
       addDebugLog(`[GERARQRCODE] =============================`);
-      
+
       console.log('[GERARQRCODE] 📊 Dados enviados ao frontend:');
       console.log(`  - QR Code texto: ${resultado.qr_code ? '✅ OK' : '❌ FALTANDO'}`);
       console.log(`  - QR Code imagem: ${resultado.qr_code_base64 ? '✅ OK' : '❌ FALTANDO'}`);
@@ -1653,7 +1667,7 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
 
       console.log(`[GERARQRCODE] ✅ QR Code gerado com sucesso (${activeGateway}):`, resultado.id);
       console.log('[GERARQRCODE] ℹ️  Cliente irá começar a fazer polling a cada 5 segundos...\n');
-      
+
       addDebugLog(`[GERARQRCODE] ✅ Resposta enviada ao frontend com sucesso`);
       res.json(resultado);
     } catch (transactionError) {
@@ -1715,22 +1729,22 @@ app.post('/gerarqrcode', applyCsrf, async (req, res) => {
 // Endpoint de teste para simular webhook PAYMENT_GENERATED
 app.post('/test-webhook', async (req, res) => {
   const { installmentId, emv } = req.body;
-  
+
   if (!installmentId || !emv) {
     return res.status(400).json({ error: 'installmentId e emv são obrigatórios' });
   }
-  
+
   addDebugLog(`[TEST] Simulando webhook para installment: ${installmentId}`);
-  
+
   // Simular webhook PAYMENT_GENERATED
   pixCodesCache.set(installmentId, {
     emv: emv,
     payment: { emv: emv, status: 'WAITING' },
     timestamp: Date.now()
   });
-  
+
   addDebugLog(`[TEST] Código PIX armazenado! Cache size: ${pixCodesCache.size}`);
-  
+
   res.json({ status: 'ok', message: 'Webhook simulado com sucesso' });
 });
 
@@ -1760,16 +1774,16 @@ app.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
     if (hookType === 'PAYMENT_GENERATED') {
       addDebugLog('[WEBHOOK] 🔑 PAYMENT_GENERATED recebido!');
       console.log('[CIABRA WEBHOOK] 🔑 Evento PAYMENT_GENERATED recebido!');
-      
+
       if (payment && installment) {
         const installmentId = installment.id;
         const pixCode = payment.emv;
-        
+
         addDebugLog(`[WEBHOOK] InstallmentId: ${installmentId}`);
         addDebugLog(`[WEBHOOK] PIX Code: ${pixCode ? 'Presente (' + pixCode.length + ' chars)' : 'Ausente'}`);
         console.log(`[CIABRA WEBHOOK] 📊 InstallmentId: ${installmentId}`);
         console.log(`[CIABRA WEBHOOK] 📊 PIX Code: ${pixCode ? pixCode.substring(0, 50) + '...' : 'N/A'}`);
-        
+
         if (pixCode && installmentId) {
           // Armazenar código PIX no cache
           pixCodesCache.set(installmentId, {
@@ -1777,10 +1791,10 @@ app.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
             payment: payment,
             timestamp: Date.now()
           });
-          
+
           addDebugLog(`[WEBHOOK] ✅ Código PIX armazenado! Cache size: ${pixCodesCache.size}`);
           console.log(`[CIABRA WEBHOOK] ✅ Código PIX armazenado para installment ${installmentId}`);
-          
+
           // Limpar cache antigo (TTL)
           setTimeout(() => {
             if (pixCodesCache.has(installmentId)) {
@@ -1795,7 +1809,7 @@ app.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
       } else {
         addDebugLog('[WEBHOOK] ⚠️ payment ou installment ausente no body');
       }
-      
+
       return res.status(200).json({ status: 'pix_stored' });
     }
 
@@ -1876,30 +1890,30 @@ app.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
 
 // Endpoint para o cliente verificar o status do pagamento com CSRF
 app.post('/check-local-status', statusCheckLimiter, applyCsrf, async (req, res) => {
-    try {
-      const { id } = req.body;
-      if (!id) return res.status(400).json({ error: "ID da transação não fornecido." });
+  try {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: "ID da transação não fornecido." });
 
-      const purchase = await PurchaseHistory.findOne({ where: { transactionId: id } });
+    const purchase = await PurchaseHistory.findOne({ where: { transactionId: id } });
 
-      if (!purchase) {
-        console.log(`[STATUS CHECK] ⚠️  Nenhuma compra encontrada para o transactionId: ${id}. Retornando 'Gerado'.`);
-        return res.json({ id: id, status: 'Gerado' });
-      }
-
-      // ENHANCED LOGGING: Log detalhado para debug
-      console.log(`[STATUS CHECK] 📊 Status para transactionId ${id}:`);
-      console.log(`  - Status atual: '${purchase.status}'`);
-      console.log(`  - Nome: ${purchase.nome}`);
-      console.log(`  - Data transação: ${purchase.dataTransacao}`);
-      console.log(`  - Valor: R$ ${(purchase.valorPago / 100).toFixed(2)}`);
-
-      res.json({ id: purchase.transactionId, status: purchase.status });
-
-    } catch (error) {
-      console.error("[STATUS CHECK] ❌ Erro ao verificar status local:", error.message);
-      res.status(500).json({ error: "Erro ao verificar status localmente" });
+    if (!purchase) {
+      console.log(`[STATUS CHECK] ⚠️  Nenhuma compra encontrada para o transactionId: ${id}. Retornando 'Gerado'.`);
+      return res.json({ id: id, status: 'Gerado' });
     }
+
+    // ENHANCED LOGGING: Log detalhado para debug
+    console.log(`[STATUS CHECK] 📊 Status para transactionId ${id}:`);
+    console.log(`  - Status atual: '${purchase.status}'`);
+    console.log(`  - Nome: ${purchase.nome}`);
+    console.log(`  - Data transação: ${purchase.dataTransacao}`);
+    console.log(`  - Valor: R$ ${(purchase.valorPago / 100).toFixed(2)}`);
+
+    res.json({ id: purchase.transactionId, status: purchase.status });
+
+  } catch (error) {
+    console.error("[STATUS CHECK] ❌ Erro ao verificar status local:", error.message);
+    res.status(500).json({ error: "Erro ao verificar status localmente" });
+  }
 });
 // Novo endpoint para consultar status de pagamento na API CIABRA
 // Inserir após o endpoint /check-local-status no server.js
@@ -1908,38 +1922,38 @@ app.post('/check-local-status', statusCheckLimiter, applyCsrf, async (req, res) 
 app.post('/api/check-ciabra-payment', statusCheckLimiter, applyCsrf, async (req, res) => {
   try {
     const { transactionId, installmentId } = req.body;
-    
+
     if (!transactionId) {
       return res.status(400).json({ error: "Transaction ID não fornecido." });
     }
-    
+
     // Primeiro, verifica status local
     const purchase = await PurchaseHistory.findOne({ where: { transactionId } });
-    
+
     if (!purchase) {
       console.log(`[CIABRA POLLING] ⚠️  Compra não encontrada: ${transactionId}`);
       return res.json({ status: 'Gerado', source: 'local' });
     }
-    
+
     // Se já está pago, retorna imediatamente
     if (purchase.status === 'Sucesso') {
       console.log(`[CIABRA POLLING] ✅ Já pago (cache local): ${transactionId}`);
       return res.json({ status: 'Sucesso', source: 'local' });
     }
-    
+
     // Se não tem installmentId, não pode consultar API
     if (!installmentId) {
       console.log(`[CIABRA POLLING] ⚠️  InstallmentId não fornecido para ${transactionId}`);
       return res.json({ status: purchase.status, source: 'local' });
     }
-    
+
     // Consultar API CIABRA
     console.log(`[CIABRA POLLING] 🔍 Consultando API para installment: ${installmentId}`);
-    
+
     try {
       const apiUrl = `https://api.az.center/payments/applications/installments/${installmentId}`;
       const authToken = Buffer.from(`${CIABRA_PUBLIC_KEY}:${CIABRA_PRIVATE_KEY}`).toString('base64');
-      
+
       const response = await axios.get(apiUrl, {
         headers: {
           'Content-Type': 'application/json',
@@ -1947,62 +1961,62 @@ app.post('/api/check-ciabra-payment', statusCheckLimiter, applyCsrf, async (req,
         },
         timeout: 10000 // 10 segundos
       });
-      
+
       console.log(`[CIABRA POLLING] 📦 Resposta da API:`, JSON.stringify(response.data, null, 2));
-      
+
       // Verificar se há pagamentos confirmados
       const apiData = response.data;
       let isPaid = false;
       let paymentId = null;
-      
+
       // A API CIABRA retorna um objeto com: { payment: {...}, pix: {...}, boleto: {...} }
       if (apiData.payment && apiData.payment.status) {
         const paymentStatus = apiData.payment.status.toUpperCase();
-        
+
         if (paymentStatus === 'CONFIRMED' || paymentStatus === 'PAID' || paymentStatus === 'SUCCESS') {
           isPaid = true;
           paymentId = apiData.payment.id;
           console.log(`[CIABRA POLLING] ✅ Pagamento confirmado encontrado!`);
           console.log(`[CIABRA POLLING] Payment ID: ${paymentId}, Status: ${paymentStatus}`);
-          
+
           // Atualizar banco de dados
           await purchase.update({ status: 'Sucesso' });
           console.log(`[CIABRA POLLING] 💾 Status atualizado no banco para 'Sucesso'`);
-          
+
           // Enviar notificação
           sendPushNotification(
             'Venda Paga com Sucesso!',
             `O pagamento de ${purchase.nome} foi confirmado (CIABRA Polling).`
           );
-          
-          return res.json({ 
-            status: 'Sucesso', 
+
+          return res.json({
+            status: 'Sucesso',
             source: 'ciabra_api',
             paymentId: paymentId
           });
         }
       }
-      
+
       // Se não encontrou pagamento confirmado
       console.log(`[CIABRA POLLING] ⏳ Pagamento ainda pendente`);
       console.log(`[CIABRA POLLING] Payment status: ${apiData.payment ? apiData.payment.status : 'N/A'}`);
-      return res.json({ 
-        status: purchase.status, 
+      return res.json({
+        status: purchase.status,
         source: 'ciabra_api',
         paymentStatus: apiData.payment ? apiData.payment.status : null
       });
-      
+
     } catch (apiError) {
       console.error(`[CIABRA POLLING] ❌ Erro ao consultar API:`, apiError.message);
-      
+
       // Em caso de erro na API, retorna status local
-      return res.json({ 
-        status: purchase.status, 
+      return res.json({
+        status: purchase.status,
         source: 'local_fallback',
         error: apiError.message
       });
     }
-    
+
   } catch (error) {
     console.error("[CIABRA POLLING] ❌ Erro crítico:", error.message);
     res.status(500).json({ error: "Erro ao verificar pagamento" });
@@ -2218,88 +2232,88 @@ app.get('/api/payment-flow-status', requireLogin, async (req, res) => {
 
 // Endpoint público para buscar a lista de produtos
 app.get('/api/products', async (req, res) => {
-    try {
-      const products = await Product.findAll({ order: [['orderIndex', 'ASC']] });
-      res.json(products);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Erro ao buscar produtos.' });
-    }
+  try {
+    const products = await Product.findAll({ order: [['orderIndex', 'ASC']] });
+    res.json(products);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao buscar produtos.' });
+  }
 });
 
 // --- ENDPOINTS DE ADMINISTRAÇÃO (Protegidos) ---
 
 // CORREÇÃO CRÍTICA #5 + #6: Criação de produtos com CSRF e sanitização
 app.post('/api/products', requireLogin, applyCsrf, async (req, res) => {
-    try {
-      const { price, image } = req.body;
+  try {
+    const { price, image } = req.body;
 
-      // CORREÇÃO CRÍTICA #6: Sanitizar inputs
-      const title = sanitizeInput(req.body.title);
-      const description = req.body.description ? sanitizeInput(req.body.description) : '';
+    // CORREÇÃO CRÍTICA #6: Sanitizar inputs
+    const title = sanitizeInput(req.body.title);
+    const description = req.body.description ? sanitizeInput(req.body.description) : '';
 
-      // Validações
-      if (!title || !price || !image) {
-        return res.status(400).json({ error: 'Título, preço e imagem são obrigatórios.' });
-      }
-
-      // Validar dados sanitizados
-      if (title.length < 3) {
-        return res.status(400).json({ error: 'Título inválido ou contém caracteres não permitidos.' });
-      }
-
-      // Validar preço
-      const priceNum = parseInt(price);
-      if (isNaN(priceNum) || priceNum <= 0 || priceNum > 1000000) {
-        return res.status(400).json({ error: 'Preço inválido (deve ser entre 1 e 1.000.000 centavos).' });
-      }
-
-      // Validar tamanho da imagem
-      if (!image || image.length > 1500000) {
-        return res.status(400).json({ error: 'Imagem inválida ou muito grande (máx 1MB).' });
-      }
-
-      const product = await Product.create({ title, price: priceNum, image, description });
-      res.json(product);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Erro ao criar produto.' });
+    // Validações
+    if (!title || !price || !image) {
+      return res.status(400).json({ error: 'Título, preço e imagem são obrigatórios.' });
     }
+
+    // Validar dados sanitizados
+    if (title.length < 3) {
+      return res.status(400).json({ error: 'Título inválido ou contém caracteres não permitidos.' });
+    }
+
+    // Validar preço
+    const priceNum = parseInt(price);
+    if (isNaN(priceNum) || priceNum <= 0 || priceNum > 1000000) {
+      return res.status(400).json({ error: 'Preço inválido (deve ser entre 1 e 1.000.000 centavos).' });
+    }
+
+    // Validar tamanho da imagem
+    if (!image || image.length > 1500000) {
+      return res.status(400).json({ error: 'Imagem inválida ou muito grande (máx 1MB).' });
+    }
+
+    const product = await Product.create({ title, price: priceNum, image, description });
+    res.json(product);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao criar produto.' });
+  }
 });
-  
+
 // Rota para reordenar produtos com CSRF
 app.put('/api/products/reorder', requireLogin, applyCsrf, async (req, res) => {
-    try {
-      const { order } = req.body;
-      if (!order || !Array.isArray(order)) {
-        return res.status(400).json({ error: 'Array de ordem é obrigatório.' });
-      }
-      // CORREÇÃO: Usar Promise.all para evitar N+1 query (executa em paralelo)
-      await Promise.all(
-        order.map((productId, index) =>
-          Product.update({ orderIndex: index }, { where: { id: productId } })
-        )
-      );
-      res.json({ message: 'Ordem atualizada com sucesso.' });
-    } catch (error)      {
-      console.error(error);
-      res.status(500).json({ error: 'Erro ao atualizar a ordem dos produtos.' });
+  try {
+    const { order } = req.body;
+    if (!order || !Array.isArray(order)) {
+      return res.status(400).json({ error: 'Array de ordem é obrigatório.' });
     }
+    // CORREÇÃO: Usar Promise.all para evitar N+1 query (executa em paralelo)
+    await Promise.all(
+      order.map((productId, index) =>
+        Product.update({ orderIndex: index }, { where: { id: productId } })
+      )
+    );
+    res.json({ message: 'Ordem atualizada com sucesso.' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao atualizar a ordem dos produtos.' });
+  }
 });
 
 // Rota para deletar produto com CSRF
 app.delete('/api/products/:id', requireLogin, applyCsrf, async (req, res) => {
-    try {
-      const { id } = req.params;
-      const rowsDeleted = await Product.destroy({ where: { id } });
-      if (rowsDeleted === 0) {
-        return res.status(404).json({ error: 'Produto não encontrado.' });
-      }
-      res.json({ message: 'Produto excluído com sucesso.' });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Erro ao excluir produto.' });
+  try {
+    const { id } = req.params;
+    const rowsDeleted = await Product.destroy({ where: { id } });
+    if (rowsDeleted === 0) {
+      return res.status(404).json({ error: 'Produto não encontrado.' });
     }
+    res.json({ message: 'Produto excluído com sucesso.' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao excluir produto.' });
+  }
 });
 
 // --- ENDPOINTS DE CONFIGURAÇÃO DE PAGAMENTO ---
@@ -2403,72 +2417,72 @@ app.post('/api/payment-settings/test', requireLogin, applyCsrf, async (req, res)
 
 // MODIFICADO: Adicionado 'requireLogin' para proteger a rota
 app.get('/api/purchase-history', requireLogin, async (req, res) => {
-    try {
-      const {
-        nome,
-        telefone,
-        mes,
-        ano,
-        status,
-        transactionId,
-        dataInicio,
-        dataFim,
-        page = 1,
-        limit = 10
-      } = req.query;
+  try {
+    const {
+      nome,
+      telefone,
+      mes,
+      ano,
+      status,
+      transactionId,
+      dataInicio,
+      dataFim,
+      page = 1,
+      limit = 10
+    } = req.query;
 
-      let where = {};
+    let where = {};
 
-      if (nome) {
-        // CORREÇÃO CRÍTICA #7: Sanitizar caracteres especiais do LIKE para prevenir SQL injection
-        const sanitizedNome = nome.replace(/[%_]/g, '\\$&');
-        where.nome = { [Op.like]: `%${sanitizedNome}%` };
-      }
-      if (telefone) {
-        where.telefone = telefone;
-      }
-      if (status) {
-        where.status = status;
-      }
-      if (transactionId) {
-        where.transactionId = { [Op.like]: `%${transactionId}%` };
-      }
-
-      // Filtro de data: prioriza range personalizado, senão usa mês/ano
-      if (dataInicio && dataFim) {
-        const startDate = new Date(dataInicio);
-        const endDate = new Date(dataFim);
-        endDate.setHours(23, 59, 59, 999); // Fim do dia
-        where.dataTransacao = { [Op.between]: [startDate, endDate] };
-      } else if (mes && ano) {
-        const startDate = new Date(ano, mes - 1, 1);
-        const endDate = new Date(ano, mes, 0, 23, 59, 59);
-        where.dataTransacao = { [Op.between]: [startDate, endDate] };
-      }
-
-      // Paginação
-      const offset = (parseInt(page) - 1) * parseInt(limit);
-
-      const { count, rows: history } = await PurchaseHistory.findAndCountAll({
-        where,
-        order: [['dataTransacao', 'DESC']],
-        limit: parseInt(limit),
-        offset: offset
-      });
-
-      res.json({
-        data: history,
-        pagination: {
-          total: count,
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalPages: Math.ceil(count / parseInt(limit))
-        }
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Erro ao buscar histórico.' });
+    if (nome) {
+      // CORREÇÃO CRÍTICA #7: Sanitizar caracteres especiais do LIKE para prevenir SQL injection
+      const sanitizedNome = nome.replace(/[%_]/g, '\\$&');
+      where.nome = { [Op.like]: `%${sanitizedNome}%` };
     }
+    if (telefone) {
+      where.telefone = telefone;
+    }
+    if (status) {
+      where.status = status;
+    }
+    if (transactionId) {
+      where.transactionId = { [Op.like]: `%${transactionId}%` };
+    }
+
+    // Filtro de data: prioriza range personalizado, senão usa mês/ano
+    if (dataInicio && dataFim) {
+      const startDate = new Date(dataInicio);
+      const endDate = new Date(dataFim);
+      endDate.setHours(23, 59, 59, 999); // Fim do dia
+      where.dataTransacao = { [Op.between]: [startDate, endDate] };
+    } else if (mes && ano) {
+      const startDate = new Date(ano, mes - 1, 1);
+      const endDate = new Date(ano, mes, 0, 23, 59, 59);
+      where.dataTransacao = { [Op.between]: [startDate, endDate] };
+    }
+
+    // Paginação
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const { count, rows: history } = await PurchaseHistory.findAndCountAll({
+      where,
+      order: [['dataTransacao', 'DESC']],
+      limit: parseInt(limit),
+      offset: offset
+    });
+
+    res.json({
+      data: history,
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(count / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao buscar histórico.' });
+  }
 });
 
 // NOVO: Rota para obter estatísticas de vendas
