@@ -5,19 +5,9 @@
  * Para rotas /api/, retorna 401 JSON. Para outras, redireciona para /login.
  */
 function requireLogin(req, res, next) {
-    if (process.env.NODE_ENV !== 'production') {
-        console.log('[REQUIRE_LOGIN] Path:', req.path);
-        console.log('[REQUIRE_LOGIN] Has session:', !!req.sessionID);
-        console.log('[REQUIRE_LOGIN] Session loggedin:', req.session.loggedin);
-    }
-
-    if (req.session.loggedin) {
-        if (process.env.NODE_ENV !== 'production') {
-            console.log('[REQUIRE_LOGIN] ✅ Acesso permitido');
-        }
+    if (req.session && req.session.loggedin) {
         next();
     } else {
-        console.log('[REQUIRE_LOGIN] ❌ Sessão não encontrada ou expirada');
         if (req.path.startsWith('/api/')) {
             res.status(401).json({ error: 'Sua sessão expirou, faça o login novamente.' });
         } else {
@@ -28,7 +18,7 @@ function requireLogin(req, res, next) {
 
 /**
  * Wrapper para CSRF que só aplica se o middleware estiver inicializado.
- * O csrfProtection é injetado via closure pelo startServer() depois da sessão estar pronta.
+ * Fail-closed: rejeita a requisição se CSRF não estiver pronto.
  */
 function makeApplyCsrf(getCsrfProtection) {
     return function applyCsrf(req, res, next) {
@@ -36,8 +26,8 @@ function makeApplyCsrf(getCsrfProtection) {
         if (csrfProtection) {
             csrfProtection(req, res, next);
         } else {
-            console.warn('[CSRF] Middleware ainda não inicializado, pulando proteção');
-            next();
+            console.error('[CSRF] Middleware não inicializado — requisição bloqueada');
+            res.status(503).json({ error: 'Servidor ainda inicializando. Tente novamente em alguns segundos.' });
         }
     };
 }

@@ -11,10 +11,26 @@ function getApplyCsrf(req) {
     return req.app.get('applyCsrf');
 }
 
-// GET /api/products — lista produtos (público)
+// Cache de produtos em memória (evita queries ao DB em cada requisição pública)
+let productsCache = null;
+let productsCacheTimestamp = 0;
+const PRODUCTS_CACHE_TTL = 60 * 1000; // 1 minuto
+
+function invalidateProductsCache() {
+    productsCache = null;
+    productsCacheTimestamp = 0;
+}
+
+// GET /api/products — lista produtos (público, com cache)
 router.get('/api/products', async (req, res) => {
     try {
+        const now = Date.now();
+        if (productsCache && (now - productsCacheTimestamp) < PRODUCTS_CACHE_TTL) {
+            return res.json(productsCache);
+        }
         const products = await Product.findAll({ order: [['orderIndex', 'ASC']] });
+        productsCache = products;
+        productsCacheTimestamp = now;
         res.json(products);
     } catch (error) {
         console.error(error);
@@ -25,7 +41,7 @@ router.get('/api/products', async (req, res) => {
 // POST /api/products — cria produto (admin)
 router.post('/api/products', requireLogin, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
         const { price, image } = req.body;
@@ -47,6 +63,7 @@ router.post('/api/products', requireLogin, (req, res, next) => {
         }
 
         const product = await Product.create({ title, price: priceNum, image, description });
+        invalidateProductsCache();
         res.json(product);
     } catch (error) {
         console.error(error);
@@ -57,7 +74,7 @@ router.post('/api/products', requireLogin, (req, res, next) => {
 // PUT /api/products/reorder — reordena produtos (admin)
 router.put('/api/products/reorder', requireLogin, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
         const { order } = req.body;
@@ -69,6 +86,7 @@ router.put('/api/products/reorder', requireLogin, (req, res, next) => {
                 Product.update({ orderIndex: index }, { where: { id: productId } })
             )
         );
+        invalidateProductsCache();
         res.json({ message: 'Ordem atualizada com sucesso.' });
     } catch (error) {
         console.error(error);
@@ -79,7 +97,7 @@ router.put('/api/products/reorder', requireLogin, (req, res, next) => {
 // DELETE /api/products/:id — exclui produto (admin)
 router.delete('/api/products/:id', requireLogin, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
         const { id } = req.params;
@@ -87,6 +105,7 @@ router.delete('/api/products/:id', requireLogin, (req, res, next) => {
         if (rowsDeleted === 0) {
             return res.status(404).json({ error: 'Produto não encontrado.' });
         }
+        invalidateProductsCache();
         res.json({ message: 'Produto excluído com sucesso.' });
     } catch (error) {
         console.error(error);

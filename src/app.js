@@ -59,9 +59,9 @@ app.use(helmet({
 // Rate limiting global
 app.use(globalLimiter);
 
-// Body parsers
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+// Body parsers com limite explícito de tamanho
+app.use(bodyParser.json({ limit: '2mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '2mb' }));
 
 // Compressão Gzip/Brotli
 app.use(compression());
@@ -90,16 +90,12 @@ app.use((req, res, next) => {
     next();
 });
 
-// Debug de sessão em produção
-if (process.env.NODE_ENV === 'production' || process.env.DEBUG_SESSION === 'true') {
+// Debug de sessão (apenas quando DEBUG_SESSION=true, nunca por padrão em produção)
+if (process.env.DEBUG_SESSION === 'true') {
     app.use((req, res, next) => {
         if (req.path === '/auth' || req.path === '/admin') {
             console.log('[SESSION DEBUG]', {
                 path: req.path,
-                protocol: req.protocol,
-                secure: req.secure,
-                hostname: req.hostname,
-                sessionID: req.sessionID,
                 hasSession: !!req.session,
                 loggedin: req.session?.loggedin
             });

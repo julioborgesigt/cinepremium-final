@@ -32,9 +32,7 @@ const PaymentSettings = require('./paymentSettings')(sequelize, DataTypes);
 // A responsabilidade de gerenciar as estruturas do banco de dados foi movida
 // para o Sequelize Migrations (pasta migrations).
 
-// NOVO: Testa a conexão
-sequelize.authenticate()
-  .then(() => console.log('Conexão com o banco de dados estabelecida com sucesso.'))
-  .catch(err => console.error('Erro ao conectar com o banco de dados:', err));
+// Nota: sequelize.authenticate() é chamado no startServer() para garantir
+// que falhas de conexão sejam tratadas corretamente no fluxo de inicialização.
 
 module.exports = { sequelize, Product, PurchaseHistory, AdminDevice, PaymentSettings };

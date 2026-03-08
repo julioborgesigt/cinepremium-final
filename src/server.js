@@ -13,24 +13,42 @@ const PORT = process.env.PORT || 3000;
 
 async function startServer() {
     try {
-        console.log('🚀 Inicializando servidor...');
-        console.log('✅ Servidor iniciando com variáveis de ambiente do Passenger...');
+        console.log('Inicializando servidor...');
 
-        // 1. Inicializa Firebase (não bloqueia)
+        // 0. Validação de variáveis críticas
+        if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+            throw new Error('SESSION_SECRET deve ser definido com pelo menos 32 caracteres.');
+        }
+        if (!process.env.ADMIN_USER || !process.env.ADMIN_PASS) {
+            throw new Error('ADMIN_USER e ADMIN_PASS devem ser definidos.');
+        }
+        if (process.env.ADMIN_PASS && !process.env.ADMIN_PASS.startsWith('$2')) {
+            console.warn('[SEGURANÇA] ADMIN_PASS não parece ser um hash bcrypt válido.');
+        }
+        if (process.env.NODE_ENV === 'production' && !process.env.CIABRA_WEBHOOK_URL) {
+            console.warn('[SEGURANÇA] CIABRA_WEBHOOK_URL não definido — webhooks não funcionarão.');
+        }
+        if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
+            console.warn('[SEGURANÇA] ALLOWED_ORIGINS não definido — CORS rejeitará requisições cross-origin.');
+        }
+
+        // 1. Testa conexão com banco de dados
+        await sequelize.authenticate();
+        console.log('Conexão com o banco de dados estabelecida com sucesso.');
+
+        // 2. Inicializa Firebase (não bloqueia)
         initFirebase();
 
-        // 2. Inicializa Redis
-        console.log('📦 Inicializando Redis...');
+        // 3. Inicializa Redis
         await initializeRedis();
 
-        // 3. Cria middleware de sessão APÓS Redis estar pronto
+        // 4. Cria middleware de sessão APÓS Redis estar pronto
         const sessionStore = getSessionStore();
-        console.log(`[DEBUG] sessionStore definido: ${!!sessionStore}`);
         const sessionMiddleware = createSessionMiddleware(sessionStore);
         app.set('sessionMiddleware', sessionMiddleware);
-        console.log(`✅ Middleware de sessão configurado (${sessionStore ? 'RedisStore' : 'MemoryStore'})`);
+        console.log(`Middleware de sessão configurado (${sessionStore ? 'RedisStore' : 'MemoryStore'})`);
 
-        // 4. Configura CSRF protection e disponibiliza para as rotas via app.set
+        // 5. Configura CSRF protection e disponibiliza para as rotas via app.set
         const csrfProtection = csrf({
             cookie: {
                 httpOnly: true,

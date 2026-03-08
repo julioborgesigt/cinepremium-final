@@ -8,9 +8,7 @@ const { PaymentSettings } = require('../../models');
 const CIABRA_API_URL = 'https://api.az.center';
 const CIABRA_PUBLIC_KEY = process.env.CIABRA_PUBLIC_KEY;
 const CIABRA_PRIVATE_KEY = process.env.CIABRA_PRIVATE_KEY;
-const CIABRA_WEBHOOK_URL =
-    process.env.CIABRA_WEBHOOK_URL ||
-    'https://cinepremiumedit.domcloud.dev/ciabra-webhook';
+const CIABRA_WEBHOOK_URL = process.env.CIABRA_WEBHOOK_URL || '';
 
 // Cache para o gateway ativo
 let cachedActiveGateway = null;
@@ -23,7 +21,7 @@ const PIX_CACHE_TTL = 10 * 60 * 1000; // 10 minutos
 
 // Array de debug logs (compartilhado com o app)
 const debugLogs = [];
-const MAX_DEBUG_LOGS = 1000;
+const MAX_DEBUG_LOGS = process.env.NODE_ENV === 'production' ? 200 : 1000;
 
 function addDebugLog(message) {
     const timestamp = new Date().toISOString();
@@ -89,13 +87,12 @@ async function createCiabraCustomer(customerData) {
     }
     try {
         console.log('[CIABRA] Criando cliente...');
-        console.log('[CIABRA] Customer data:', JSON.stringify(customerData, null, 2));
         const response = await axios.post(
             `${CIABRA_API_URL}/invoices/applications/customers`,
             customerData,
             { headers: { Authorization: `Basic ${authToken}`, 'Content-Type': 'application/json' } }
         );
-        console.log('[CIABRA] Cliente criado com sucesso:', JSON.stringify(response.data, null, 2));
+        console.log('[CIABRA] Cliente criado com sucesso. ID:', response.data?.id);
         return response.data;
     } catch (error) {
         console.error('[CIABRA] ===== ERRO AO CRIAR CLIENTE =====');
@@ -119,13 +116,12 @@ async function createCiabraInvoice(payload) {
     }
     try {
         console.log('[CIABRA] Criando cobrança...');
-        console.log('[CIABRA] Payload:', JSON.stringify(payload, null, 2));
         const response = await axios.post(
             `${CIABRA_API_URL}/invoices/applications/invoices`,
             payload,
             { headers: { Authorization: `Basic ${authToken}`, 'Content-Type': 'application/json' } }
         );
-        console.log('[CIABRA] Resposta recebida:', JSON.stringify(response.data, null, 2));
+        console.log('[CIABRA] Cobrança criada com sucesso. ID:', response.data?.id);
         return response.data;
     } catch (error) {
         console.error('[CIABRA] ===== ERRO AO CRIAR COBRANÇA =====');
@@ -197,12 +193,13 @@ async function generateCiabraPixWithAutomation(installmentId) {
         await page.goto(paymentUrl, { waitUntil: 'networkidle2', timeout: 30000 });
         addDebugLog('[CIABRA AUTOMATION] Página carregada com sucesso');
 
-        const screenshotPath = `/tmp/ciabra_${installmentId}_1.png`;
-        await page.screenshot({ path: screenshotPath });
-        addDebugLog('[CIABRA AUTOMATION] Screenshot salvo: ' + screenshotPath);
-
-        const buttons = await page.$$eval('button', btns => btns.map(b => ({ text: b.textContent.trim(), html: b.innerHTML })));
-        addDebugLog('[CIABRA AUTOMATION] Botões encontrados: ' + JSON.stringify(buttons, null, 2));
+        if (process.env.NODE_ENV !== 'production') {
+            const screenshotPath = `/tmp/ciabra_${installmentId}_1.png`;
+            await page.screenshot({ path: screenshotPath });
+            addDebugLog('[CIABRA AUTOMATION] Screenshot salvo: ' + screenshotPath);
+            const buttons = await page.$$eval('button', btns => btns.map(b => ({ text: b.textContent.trim() })));
+            addDebugLog('[CIABRA AUTOMATION] Botões encontrados: ' + JSON.stringify(buttons));
+        }
 
         await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -250,12 +247,13 @@ async function generateCiabraPixWithAutomation(installmentId) {
         addDebugLog('[CIABRA AUTOMATION] Clicou em PIX');
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        const screenshotPath2 = `/tmp/ciabra_${installmentId}_2.png`;
-        await page.screenshot({ path: screenshotPath2 });
-        addDebugLog('[CIABRA AUTOMATION] Screenshot após PIX: ' + screenshotPath2);
-
-        const buttons2 = await page.$$eval('button', btns => btns.map(b => ({ text: b.textContent.trim(), html: b.innerHTML })));
-        addDebugLog('[CIABRA AUTOMATION] Botões após clicar em PIX: ' + JSON.stringify(buttons2, null, 2));
+        if (process.env.NODE_ENV !== 'production') {
+            const screenshotPath2 = `/tmp/ciabra_${installmentId}_2.png`;
+            await page.screenshot({ path: screenshotPath2 });
+            addDebugLog('[CIABRA AUTOMATION] Screenshot após PIX: ' + screenshotPath2);
+            const buttons2 = await page.$$eval('button', btns => btns.map(b => ({ text: b.textContent.trim() })));
+            addDebugLog('[CIABRA AUTOMATION] Botões após clicar em PIX: ' + JSON.stringify(buttons2));
+        }
 
         let pagarButton = null;
 

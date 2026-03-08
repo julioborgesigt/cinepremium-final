@@ -20,11 +20,7 @@ router.get('/login', (req, res) => {
 // POST /auth — processa login com bcrypt e CSRF
 router.post('/auth', loginLimiter, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) {
-        applyCsrf(req, res, next);
-    } else {
-        next();
-    }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     const { username, password } = req.body;
     console.log('[AUTH] Tentativa de login recebida');
@@ -64,8 +60,8 @@ router.post('/auth', loginLimiter, (req, res, next) => {
     }
 });
 
-// GET /logout — destrói a sessão e redireciona para login
-router.get('/logout', (req, res) => {
+// POST /logout — destrói a sessão e redireciona para login (POST previne CSRF via img tags)
+router.post('/logout', (req, res) => {
     req.session.destroy((err) => {
         if (err) {
             console.error('[LOGOUT] Erro ao destruir sessão:', err);
