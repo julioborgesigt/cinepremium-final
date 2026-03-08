@@ -69,6 +69,10 @@ module.exports = (sequelize, DataTypes) => {
       {
         name: 'idx_status',
         fields: ['status']
+      },
+      {
+        name: 'idx_status_dataTransacao',
+        fields: ['status', 'dataTransacao']
       }
     ]
   });

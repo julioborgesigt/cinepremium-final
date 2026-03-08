@@ -21,7 +21,7 @@ const PIX_CACHE_TTL = 10 * 60 * 1000; // 10 minutos
 
 // Array de debug logs (compartilhado com o app)
 const debugLogs = [];
-const MAX_DEBUG_LOGS = 1000;
+const MAX_DEBUG_LOGS = process.env.NODE_ENV === 'production' ? 200 : 1000;
 
 function addDebugLog(message) {
     const timestamp = new Date().toISOString();
@@ -193,12 +193,13 @@ async function generateCiabraPixWithAutomation(installmentId) {
         await page.goto(paymentUrl, { waitUntil: 'networkidle2', timeout: 30000 });
         addDebugLog('[CIABRA AUTOMATION] Página carregada com sucesso');
 
-        const screenshotPath = `/tmp/ciabra_${installmentId}_1.png`;
-        await page.screenshot({ path: screenshotPath });
-        addDebugLog('[CIABRA AUTOMATION] Screenshot salvo: ' + screenshotPath);
-
-        const buttons = await page.$$eval('button', btns => btns.map(b => ({ text: b.textContent.trim(), html: b.innerHTML })));
-        addDebugLog('[CIABRA AUTOMATION] Botões encontrados: ' + JSON.stringify(buttons, null, 2));
+        if (process.env.NODE_ENV !== 'production') {
+            const screenshotPath = `/tmp/ciabra_${installmentId}_1.png`;
+            await page.screenshot({ path: screenshotPath });
+            addDebugLog('[CIABRA AUTOMATION] Screenshot salvo: ' + screenshotPath);
+            const buttons = await page.$$eval('button', btns => btns.map(b => ({ text: b.textContent.trim() })));
+            addDebugLog('[CIABRA AUTOMATION] Botões encontrados: ' + JSON.stringify(buttons));
+        }
 
         await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -246,12 +247,13 @@ async function generateCiabraPixWithAutomation(installmentId) {
         addDebugLog('[CIABRA AUTOMATION] Clicou em PIX');
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        const screenshotPath2 = `/tmp/ciabra_${installmentId}_2.png`;
-        await page.screenshot({ path: screenshotPath2 });
-        addDebugLog('[CIABRA AUTOMATION] Screenshot após PIX: ' + screenshotPath2);
-
-        const buttons2 = await page.$$eval('button', btns => btns.map(b => ({ text: b.textContent.trim(), html: b.innerHTML })));
-        addDebugLog('[CIABRA AUTOMATION] Botões após clicar em PIX: ' + JSON.stringify(buttons2, null, 2));
+        if (process.env.NODE_ENV !== 'production') {
+            const screenshotPath2 = `/tmp/ciabra_${installmentId}_2.png`;
+            await page.screenshot({ path: screenshotPath2 });
+            addDebugLog('[CIABRA AUTOMATION] Screenshot após PIX: ' + screenshotPath2);
+            const buttons2 = await page.$$eval('button', btns => btns.map(b => ({ text: b.textContent.trim() })));
+            addDebugLog('[CIABRA AUTOMATION] Botões após clicar em PIX: ' + JSON.stringify(buttons2));
+        }
 
         let pagarButton = null;
 

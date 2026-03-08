@@ -117,9 +117,15 @@ if (process.env.NODE_ENV !== 'production') {
     });
 }
 
-// GET /api/firebase-config — configurações públicas do Firebase para o frontend
+// GET /api/firebase-config — configurações públicas do Firebase para o frontend (cacheável)
+let firebaseConfigCache = null;
 router.get('/api/firebase-config', (req, res) => {
     try {
+        if (firebaseConfigCache) {
+            res.set('Cache-Control', 'public, max-age=3600');
+            return res.json(firebaseConfigCache);
+        }
+
         const firebaseConfig = {
             apiKey: process.env.FIREBASE_API_KEY,
             authDomain: process.env.FIREBASE_AUTH_DOMAIN,
@@ -139,6 +145,8 @@ router.get('/api/firebase-config', (req, res) => {
             return res.status(500).json({ error: 'Configuração do Firebase incompleta no servidor.' });
         }
 
+        firebaseConfigCache = firebaseConfig;
+        res.set('Cache-Control', 'public, max-age=3600');
         res.json(firebaseConfig);
     } catch (error) {
         console.error('[Firebase Config] Erro ao processar configuração:', error);

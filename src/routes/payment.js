@@ -66,8 +66,10 @@ router.post('/gerarqrcode', qrCodeLimiter, (req, res, next) => {
         const now = new Date();
         const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
         const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        const attemptsLastHour = await PurchaseHistory.count({ where: { telefone, dataTransacao: { [Op.gte]: oneHourAgo } } });
-        const attemptsLastMonth = await PurchaseHistory.count({ where: { telefone, dataTransacao: { [Op.gte]: oneMonthAgo } } });
+        const [attemptsLastHour, attemptsLastMonth] = await Promise.all([
+            PurchaseHistory.count({ where: { telefone, dataTransacao: { [Op.gte]: oneHourAgo } } }),
+            PurchaseHistory.count({ where: { telefone, dataTransacao: { [Op.gte]: oneMonthAgo } } })
+        ]);
         if (attemptsLastHour >= 3 || attemptsLastMonth >= 5) {
             return res.status(429).json({ error: 'Você já tentou pagar muitas vezes, procure seu vendedor ou tente novamente depois de algumas horas.' });
         }
