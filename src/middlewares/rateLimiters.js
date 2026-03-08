@@ -35,4 +35,13 @@ const statusCheckLimiter = rateLimit({
     legacyHeaders: false
 });
 
-module.exports = { globalLimiter, loginLimiter, webhookLimiter, statusCheckLimiter };
+// Rate limiting por IP para geração de QR code (proteção contra abuso)
+const qrCodeLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hora
+    max: 10, // 10 gerações por IP por hora
+    message: 'Muitas tentativas de geração de QR Code deste IP. Tente novamente mais tarde.',
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+module.exports = { globalLimiter, loginLimiter, webhookLimiter, statusCheckLimiter, qrCodeLimiter };

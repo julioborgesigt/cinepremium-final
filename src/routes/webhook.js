@@ -3,15 +3,25 @@
 const express = require('express');
 const { PurchaseHistory } = require('../../models');
 const { webhookLimiter } = require('../middlewares/rateLimiters');
+const { requireLogin } = require('../middlewares/auth');
 const { addDebugLog, pixCodesCache, CIABRA_WEBHOOK_URL } = require('../services/ciabraService');
 const { sendPushNotification } = require('../services/firebaseService');
 
 const PIX_CACHE_TTL = 10 * 60 * 1000; // 10 minutos
 
+// IPs confiáveis da CIABRA (configure via CIABRA_ALLOWED_IPS no .env, separados por vírgula)
+function isTrustedWebhookIp(ip) {
+    const allowedIpsEnv = process.env.CIABRA_ALLOWED_IPS;
+    if (!allowedIpsEnv) return true; // sem restrição se não configurado
+    const allowedIps = allowedIpsEnv.split(',').map(s => s.trim()).filter(Boolean);
+    const normalizedIp = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+    return allowedIps.includes(normalizedIp);
+}
+
 const router = express.Router();
 
-// POST /test-webhook — simula webhook PAYMENT_GENERATED (uso interno de debug)
-router.post('/test-webhook', async (req, res) => {
+// POST /test-webhook — simula webhook PAYMENT_GENERATED (uso interno de debug, protegido)
+router.post('/test-webhook', requireLogin, async (req, res) => {
     const { installmentId, emv } = req.body;
     if (!installmentId || !emv) {
         return res.status(400).json({ error: 'installmentId e emv são obrigatórios' });
@@ -28,6 +38,10 @@ router.post('/test-webhook', async (req, res) => {
 
 // POST /ciabra-webhook — recebe webhooks da CIABRA
 router.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
+    if (!isTrustedWebhookIp(req.ip)) {
+        console.warn(`[CIABRA WEBHOOK] ⛔ IP bloqueado: ${req.ip}`);
+        return res.status(403).json({ error: 'Acesso negado.' });
+    }
     console.log('\n=====================================');
     console.log('🔷 [CIABRA WEBHOOK] Webhook Recebido');
     console.log('📅 Timestamp:', new Date().toISOString());

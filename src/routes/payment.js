@@ -5,7 +5,7 @@ const { Op } = require('sequelize');
 const validator = require('validator');
 const { PurchaseHistory, sequelize } = require('../../models');
 const { requireLogin } = require('../middlewares/auth');
-const { statusCheckLimiter } = require('../middlewares/rateLimiters');
+const { statusCheckLimiter, qrCodeLimiter } = require('../middlewares/rateLimiters');
 const { sanitizeInput, isValidCPF, isValidEmail, isValidPhone } = require('../middlewares/validation');
 const {
     getActivePaymentGateway,
@@ -28,16 +28,22 @@ function getApplyCsrf(req) {
 }
 
 // POST /gerarqrcode — gera QR Code PIX via CIABRA
-router.post('/gerarqrcode', (req, res, next) => {
+router.post('/gerarqrcode', qrCodeLimiter, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
     if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
 }, async (req, res) => {
     try {
-        const { value, telefone, cpf, productTitle, productDescription } = req.body;
+        const { telefone, cpf, productTitle, productDescription } = req.body;
         const nome = sanitizeInput(req.body.nome);
         const email = sanitizeInput(req.body.email);
 
-        if (!value || !nome || !telefone || !cpf || !email) {
+        // Valida value como inteiro positivo (centavos)
+        const value = parseInt(req.body.value, 10);
+        if (!Number.isInteger(value) || value <= 0) {
+            return res.status(400).json({ error: 'Valor do produto inválido.' });
+        }
+
+        if (!nome || !telefone || !cpf || !email) {
             return res.status(400).json({ error: 'Todos os campos, incluindo e-mail, são obrigatórios.' });
         }
         if (nome.length < 3) {
@@ -52,9 +58,6 @@ router.post('/gerarqrcode', (req, res, next) => {
         const sanitizedEmail = validator.normalizeEmail(email);
         if (!isValidPhone(telefone)) {
             return res.status(400).json({ error: 'Telefone inválido. Deve conter 11 dígitos (DDD + número).' });
-        }
-        if (isNaN(value) || value <= 0) {
-            return res.status(400).json({ error: 'Valor do produto inválido.' });
         }
 
         // Verificação de tentativas de compra
@@ -91,15 +94,7 @@ router.post('/gerarqrcode', (req, res, next) => {
             if (activeGateway === 'ciabra') {
                 console.log('[CIABRA DEBUG] ====== INÍCIO DO PROCESSAMENTO ======');
 
-                let valueInCents;
-                if (typeof value === 'string') { valueInCents = parseInt(value, 10); }
-                else if (typeof value === 'number') { valueInCents = Math.round(value); }
-                else { throw new Error(`Tipo de valor inválido: ${typeof value}`); }
-
-                if (isNaN(valueInCents) || valueInCents <= 0) {
-                    throw new Error(`Valor do produto inválido: ${value} -> ${valueInCents}`);
-                }
-
+                const valueInCents = value; // já validado como inteiro positivo acima
                 const ciabraPrice = Number((valueInCents / 100).toFixed(2));
                 if (isNaN(ciabraPrice) || ciabraPrice <= 0) {
                     throw new Error(`Preço calculado inválido: ${ciabraPrice}`);
@@ -225,20 +220,10 @@ router.post('/gerarqrcode', (req, res, next) => {
         if (error.response && error.response.data) {
             const apiError = error.response.data;
             errorCode = error.response.status;
-            errorDetails = apiError;
             if (apiError.message) errorMessage = apiError.message;
-            if (apiError.code) errorCode = apiError.code;
-        } else {
-            errorMessage = error.message || errorMessage;
-            errorDetails = { localError: true, message: error.message };
         }
 
-        res.status(400).json({
-            error: errorMessage,
-            details: errorDetails,
-            httpCode: errorCode,
-            debug: { errorType: error.name, hasResponse: !!error.response, responseStatus: error.response?.status }
-        });
+        res.status(400).json({ error: errorMessage, httpCode: errorCode });
     }
 });
 

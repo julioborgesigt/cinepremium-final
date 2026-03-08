@@ -27,11 +27,11 @@ router.post('/auth', loginLimiter, (req, res, next) => {
     }
 }, async (req, res) => {
     const { username, password } = req.body;
-    console.log('[AUTH] Tentativa de login para usuário:', username);
+    console.log('[AUTH] Tentativa de login recebida');
 
     try {
         if (username !== process.env.ADMIN_USER) {
-            console.log('[AUTH] Username incorreto');
+            console.log('[AUTH] Credenciais inválidas');
             return res.status(401).json({ error: 'Credenciais inválidas' });
         }
 
@@ -55,7 +55,7 @@ router.post('/auth', loginLimiter, (req, res, next) => {
                 });
             });
         } else {
-            console.log('[AUTH] Senha incorreta');
+            console.log('[AUTH] Credenciais inválidas');
             return res.status(401).json({ error: 'Credenciais inválidas' });
         }
     } catch (error) {
