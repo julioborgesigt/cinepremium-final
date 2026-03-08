@@ -10,15 +10,12 @@ const { sendPushNotification } = require('../services/firebaseService');
 const PIX_CACHE_TTL = 10 * 60 * 1000; // 10 minutos
 
 // IPs confiáveis da CIABRA (configure via CIABRA_ALLOWED_IPS no .env, separados por vírgula)
+// Se CIABRA_ALLOWED_IPS não estiver definido, aceita qualquer IP (fail-open).
+// Recomendação: configure CIABRA_ALLOWED_IPS em produção para restringir acesso.
 function isTrustedWebhookIp(ip) {
     const allowedIpsEnv = process.env.CIABRA_ALLOWED_IPS;
     if (!allowedIpsEnv) {
-        // Fail-closed: se não configurado em produção, bloqueia por segurança
-        if (process.env.NODE_ENV === 'production') {
-            console.warn('[CIABRA WEBHOOK] CIABRA_ALLOWED_IPS não configurado — bloqueando todos os webhooks em produção');
-            return false;
-        }
-        return true; // permite tudo apenas em desenvolvimento
+        return true; // Aceita qualquer IP quando não configurado
     }
     const allowedIps = allowedIpsEnv.split(',').map(s => s.trim()).filter(Boolean);
     const normalizedIp = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
