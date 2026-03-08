@@ -8,9 +8,7 @@ const { PaymentSettings } = require('../../models');
 const CIABRA_API_URL = 'https://api.az.center';
 const CIABRA_PUBLIC_KEY = process.env.CIABRA_PUBLIC_KEY;
 const CIABRA_PRIVATE_KEY = process.env.CIABRA_PRIVATE_KEY;
-const CIABRA_WEBHOOK_URL =
-    process.env.CIABRA_WEBHOOK_URL ||
-    'https://cinepremiumedit.domcloud.dev/ciabra-webhook';
+const CIABRA_WEBHOOK_URL = process.env.CIABRA_WEBHOOK_URL || '';
 
 // Cache para o gateway ativo
 let cachedActiveGateway = null;
@@ -89,13 +87,12 @@ async function createCiabraCustomer(customerData) {
     }
     try {
         console.log('[CIABRA] Criando cliente...');
-        console.log('[CIABRA] Customer data:', JSON.stringify(customerData, null, 2));
         const response = await axios.post(
             `${CIABRA_API_URL}/invoices/applications/customers`,
             customerData,
             { headers: { Authorization: `Basic ${authToken}`, 'Content-Type': 'application/json' } }
         );
-        console.log('[CIABRA] Cliente criado com sucesso:', JSON.stringify(response.data, null, 2));
+        console.log('[CIABRA] Cliente criado com sucesso. ID:', response.data?.id);
         return response.data;
     } catch (error) {
         console.error('[CIABRA] ===== ERRO AO CRIAR CLIENTE =====');
@@ -119,13 +116,12 @@ async function createCiabraInvoice(payload) {
     }
     try {
         console.log('[CIABRA] Criando cobrança...');
-        console.log('[CIABRA] Payload:', JSON.stringify(payload, null, 2));
         const response = await axios.post(
             `${CIABRA_API_URL}/invoices/applications/invoices`,
             payload,
             { headers: { Authorization: `Basic ${authToken}`, 'Content-Type': 'application/json' } }
         );
-        console.log('[CIABRA] Resposta recebida:', JSON.stringify(response.data, null, 2));
+        console.log('[CIABRA] Cobrança criada com sucesso. ID:', response.data?.id);
         return response.data;
     } catch (error) {
         console.error('[CIABRA] ===== ERRO AO CRIAR COBRANÇA =====');

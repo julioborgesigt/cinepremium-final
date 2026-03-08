@@ -12,7 +12,14 @@ const PIX_CACHE_TTL = 10 * 60 * 1000; // 10 minutos
 // IPs confiáveis da CIABRA (configure via CIABRA_ALLOWED_IPS no .env, separados por vírgula)
 function isTrustedWebhookIp(ip) {
     const allowedIpsEnv = process.env.CIABRA_ALLOWED_IPS;
-    if (!allowedIpsEnv) return true; // sem restrição se não configurado
+    if (!allowedIpsEnv) {
+        // Fail-closed: se não configurado em produção, bloqueia por segurança
+        if (process.env.NODE_ENV === 'production') {
+            console.warn('[CIABRA WEBHOOK] CIABRA_ALLOWED_IPS não configurado — bloqueando todos os webhooks em produção');
+            return false;
+        }
+        return true; // permite tudo apenas em desenvolvimento
+    }
     const allowedIps = allowedIpsEnv.split(',').map(s => s.trim()).filter(Boolean);
     const normalizedIp = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
     return allowedIps.includes(normalizedIp);
@@ -20,21 +27,23 @@ function isTrustedWebhookIp(ip) {
 
 const router = express.Router();
 
-// POST /test-webhook — simula webhook PAYMENT_GENERATED (uso interno de debug, protegido)
-router.post('/test-webhook', requireLogin, async (req, res) => {
-    const { installmentId, emv } = req.body;
-    if (!installmentId || !emv) {
-        return res.status(400).json({ error: 'installmentId e emv são obrigatórios' });
-    }
-    addDebugLog(`[TEST] Simulando webhook para installment: ${installmentId}`);
-    pixCodesCache.set(installmentId, {
-        emv,
-        payment: { emv, status: 'WAITING' },
-        timestamp: Date.now()
+// POST /test-webhook — simula webhook PAYMENT_GENERATED (apenas em desenvolvimento)
+if (process.env.NODE_ENV !== 'production') {
+    router.post('/test-webhook', requireLogin, async (req, res) => {
+        const { installmentId, emv } = req.body;
+        if (!installmentId || !emv) {
+            return res.status(400).json({ error: 'installmentId e emv são obrigatórios' });
+        }
+        addDebugLog(`[TEST] Simulando webhook para installment: ${installmentId}`);
+        pixCodesCache.set(installmentId, {
+            emv,
+            payment: { emv, status: 'WAITING' },
+            timestamp: Date.now()
+        });
+        addDebugLog(`[TEST] Código PIX armazenado! Cache size: ${pixCodesCache.size}`);
+        res.json({ status: 'ok', message: 'Webhook simulado com sucesso' });
     });
-    addDebugLog(`[TEST] Código PIX armazenado! Cache size: ${pixCodesCache.size}`);
-    res.json({ status: 'ok', message: 'Webhook simulado com sucesso' });
-});
+}
 
 // POST /ciabra-webhook — recebe webhooks da CIABRA
 router.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
@@ -42,13 +51,7 @@ router.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
         console.warn(`[CIABRA WEBHOOK] ⛔ IP bloqueado: ${req.ip}`);
         return res.status(403).json({ error: 'Acesso negado.' });
     }
-    console.log('\n=====================================');
-    console.log('🔷 [CIABRA WEBHOOK] Webhook Recebido');
-    console.log('📅 Timestamp:', new Date().toISOString());
-    console.log('🌐 IP:', req.ip);
-    console.log('📦 Headers:', JSON.stringify(req.headers, null, 2));
-    console.log('📄 Body:', JSON.stringify(req.body, null, 2));
-    console.log('=====================================\n');
+    console.log(`[CIABRA WEBHOOK] Webhook recebido — IP: ${req.ip}, hookType: ${req.body?.hookType || 'N/A'}`);
 
     try {
         const { hookType, invoice, payment, installment } = req.body;

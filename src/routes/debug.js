@@ -36,88 +36,86 @@ router.get('/health', async (req, res) => {
     } catch (error) {
         healthCheck.status = 'error';
         healthCheck.checks.database = 'error';
-        healthCheck.error = error.message;
         healthCheck.responseTime = Date.now() - startTime;
         console.error('[Health Check] Erro:', error);
         res.status(503).json(healthCheck);
     }
 });
 
-// GET /debug-logs — logs de debug do servidor (protegido)
-router.get('/debug-logs', requireLogin, (req, res) => {
-    const limit = parseInt(req.query.limit) || 100;
-    res.json({
-        timestamp: new Date().toISOString(),
-        server: {
-            uptime: process.uptime(),
-            memory: process.memoryUsage(),
-            activeGateway: getCachedActiveGateway()
-        },
-        cache: {
-            pixCodesSize: pixCodesCache.size,
-            pixCodes: Array.from(pixCodesCache.keys())
-        },
-        logs: {
-            total: debugLogs.length,
-            showing: Math.min(limit, debugLogs.length),
-            entries: debugLogs.slice(-limit)
+// GET /debug-logs — logs de debug do servidor (protegido, apenas fora de produção)
+if (process.env.NODE_ENV !== 'production') {
+    router.get('/debug-logs', requireLogin, (req, res) => {
+        const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+        res.json({
+            timestamp: new Date().toISOString(),
+            server: {
+                uptime: process.uptime(),
+                memory: process.memoryUsage(),
+                activeGateway: getCachedActiveGateway()
+            },
+            cache: {
+                pixCodesSize: pixCodesCache.size,
+                pixCodes: Array.from(pixCodesCache.keys())
+            },
+            logs: {
+                total: debugLogs.length,
+                showing: Math.min(limit, debugLogs.length),
+                entries: debugLogs.slice(-limit)
+            }
+        });
+    });
+
+    // GET /api/diagnostics — diagnóstico completo (protegido, apenas fora de produção)
+    router.get('/api/diagnostics', requireLogin, async (req, res) => {
+        try {
+            const redisClient = getRedisClient();
+            const sessionStore = getSessionStore();
+
+            const diagnostics = {
+                environment: {
+                    NODE_ENV: process.env.NODE_ENV || 'não definido',
+                    USE_REDIS: process.env.USE_REDIS || 'não definido',
+                    PORT: process.env.PORT || 'não definido'
+                },
+                redis: {
+                    url_configured: !!process.env.REDIS_URL,
+                    client_connected: !!redisClient,
+                    store_configured: !!sessionStore,
+                    should_use_redis: process.env.NODE_ENV === 'production' || process.env.USE_REDIS === 'true'
+                },
+                session: {
+                    secret_configured: !!process.env.SESSION_SECRET,
+                    store_type: sessionStore ? 'RedisStore' : 'MemoryStore'
+                },
+                database: {
+                    host_configured: !!process.env.DB_HOST,
+                    name_configured: !!process.env.DB_NAME,
+                    user_configured: !!process.env.DB_USER
+                },
+                ciabra: {
+                    public_key_configured: !!process.env.CIABRA_PUBLIC_KEY,
+                    private_key_configured: !!process.env.CIABRA_PRIVATE_KEY
+                },
+                payment: { active_gateway: getCachedActiveGateway() || 'não carregado ainda' },
+                firebase: { initialized: isFirebaseInitialized() }
+            };
+
+            if (redisClient) {
+                try {
+                    const keys = await redisClient.keys('cinepremium:sess:*');
+                    diagnostics.redis.active_sessions = keys.length;
+                } catch (err) {
+                    diagnostics.redis.active_sessions_error = 'Erro ao consultar sessões';
+                }
+            }
+
+            res.json(diagnostics);
+        } catch (error) {
+            console.error('Erro ao gerar diagnóstico:', error);
+            res.status(500).json({ error: 'Erro ao gerar diagnóstico' });
         }
     });
-});
-
-// GET /api/diagnostics — diagnóstico completo (protegido)
-router.get('/api/diagnostics', requireLogin, async (req, res) => {
-    try {
-        const redisClient = getRedisClient();
-        const sessionStore = getSessionStore();
-
-        const diagnostics = {
-            environment: {
-                NODE_ENV: process.env.NODE_ENV || 'não definido',
-                USE_REDIS: process.env.USE_REDIS || 'não definido',
-                PORT: process.env.PORT || 'não definido'
-            },
-            redis: {
-                url_configured: !!process.env.REDIS_URL,
-                url_preview: process.env.REDIS_URL ? process.env.REDIS_URL.replace(/:[^:@]+@/, ':****@') : 'não definido',
-                client_connected: !!redisClient,
-                store_configured: !!sessionStore,
-                should_use_redis: process.env.NODE_ENV === 'production' || process.env.USE_REDIS === 'true'
-            },
-            session: {
-                secret_configured: !!process.env.SESSION_SECRET,
-                store_type: sessionStore ? 'RedisStore' : 'MemoryStore',
-                cookie_domain: process.env.COOKIE_DOMAIN || 'não definido'
-            },
-            database: {
-                host: process.env.DB_HOST || 'não definido',
-                name: process.env.DB_NAME || 'não definido',
-                user_configured: !!process.env.DB_USER
-            },
-            ciabra: {
-                public_key_configured: !!process.env.CIABRA_PUBLIC_KEY,
-                private_key_configured: !!process.env.CIABRA_PRIVATE_KEY,
-                webhook_url: process.env.CIABRA_WEBHOOK_URL || 'não definido'
-            },
-            payment: { active_gateway: getCachedActiveGateway() || 'não carregado ainda' },
-            firebase: { initialized: isFirebaseInitialized(), project_id: process.env.FIREBASE_PROJECT_ID || 'não definido' }
-        };
-
-        if (redisClient) {
-            try {
-                const keys = await redisClient.keys('cinepremium:sess:*');
-                diagnostics.redis.active_sessions = keys.length;
-            } catch (err) {
-                diagnostics.redis.active_sessions_error = err.message;
-            }
-        }
-
-        res.json(diagnostics);
-    } catch (error) {
-        console.error('Erro ao gerar diagnóstico:', error);
-        res.status(500).json({ error: 'Erro ao gerar diagnóstico' });
-    }
-});
+}
 
 // GET /api/firebase-config — configurações públicas do Firebase para o frontend
 router.get('/api/firebase-config', (req, res) => {

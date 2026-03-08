@@ -30,12 +30,14 @@ function getApplyCsrf(req) {
 // POST /gerarqrcode — gera QR Code PIX via CIABRA
 router.post('/gerarqrcode', qrCodeLimiter, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
-        const { telefone, cpf, productTitle, productDescription } = req.body;
+        const { telefone, cpf } = req.body;
         const nome = sanitizeInput(req.body.nome);
         const email = sanitizeInput(req.body.email);
+        const productTitle = sanitizeInput(req.body.productTitle);
+        const productDescription = sanitizeInput(req.body.productDescription);
 
         // Valida value como inteiro positivo (centavos)
         const value = parseInt(req.body.value, 10);
@@ -129,8 +131,7 @@ router.post('/gerarqrcode', qrCodeLimiter, (req, res, next) => {
                     ]
                 };
 
-                console.log('[CIABRA DEBUG] ====== PAYLOAD FINAL ======');
-                console.log(JSON.stringify(ciabraPayload, null, 2));
+                console.log('[CIABRA] Criando invoice com preço:', ciabraPrice);
 
                 const ciabraResponse = await createCiabraInvoice(ciabraPayload);
                 transactionIdResult = ciabraResponse.id;
@@ -230,7 +231,7 @@ router.post('/gerarqrcode', qrCodeLimiter, (req, res, next) => {
 // POST /check-local-status — verifica status local da transação
 router.post('/check-local-status', statusCheckLimiter, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
         const { id } = req.body;
@@ -254,7 +255,7 @@ router.post('/check-local-status', statusCheckLimiter, (req, res, next) => {
 const axios = require('axios');
 router.post('/api/check-ciabra-payment', statusCheckLimiter, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
         const { transactionId, installmentId } = req.body;
@@ -295,7 +296,7 @@ router.post('/api/check-ciabra-payment', statusCheckLimiter, (req, res, next) =>
             return res.json({ status: purchase.status, source: 'ciabra_api', paymentStatus: apiData.payment ? apiData.payment.status : null });
         } catch (apiError) {
             console.error(`[CIABRA POLLING] ❌ Erro ao consultar API:`, apiError.message);
-            return res.json({ status: purchase.status, source: 'local_fallback', error: apiError.message });
+            return res.json({ status: purchase.status, source: 'local_fallback' });
         }
     } catch (error) {
         console.error('[CIABRA POLLING] ❌ Erro crítico:', error.message);

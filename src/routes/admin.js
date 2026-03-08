@@ -40,7 +40,10 @@ router.get('/api/purchase-history', requireLogin, async (req, res) => {
         }
         if (telefone) where.telefone = telefone;
         if (status) where.status = status;
-        if (transactionId) where.transactionId = { [Op.like]: `%${transactionId}%` };
+        if (transactionId) {
+            const sanitizedTxId = transactionId.replace(/[%_]/g, '\\$&');
+            where.transactionId = { [Op.like]: `%${sanitizedTxId}%` };
+        }
 
         if (dataInicio && dataFim) {
             const startDate = new Date(dataInicio);
@@ -53,11 +56,12 @@ router.get('/api/purchase-history', requireLogin, async (req, res) => {
             where.dataTransacao = { [Op.between]: [startDate, endDate] };
         }
 
-        const offset = (parseInt(page) - 1) * parseInt(limit);
+        const parsedLimit = Math.min(Math.max(parseInt(limit) || 10, 1), 100);
+        const offset = (Math.max(parseInt(page) || 1, 1) - 1) * parsedLimit;
         const { count, rows: history } = await PurchaseHistory.findAndCountAll({
             where,
             order: [['dataTransacao', 'DESC']],
-            limit: parseInt(limit),
+            limit: parsedLimit,
             offset
         });
 
@@ -65,9 +69,9 @@ router.get('/api/purchase-history', requireLogin, async (req, res) => {
             data: history,
             pagination: {
                 total: count,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                totalPages: Math.ceil(count / parseInt(limit))
+                page: Math.max(parseInt(page) || 1, 1),
+                limit: parsedLimit,
+                totalPages: Math.ceil(count / parsedLimit)
             }
         });
     } catch (error) {
@@ -126,7 +130,7 @@ router.get('/api/statistics', requireLogin, async (req, res) => {
 // POST /api/devices — registra dispositivo para notificações push
 router.post('/api/devices', requireLogin, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     const { token } = req.body;
     if (!token) return res.status(400).json({ error: 'Token não fornecido.' });
@@ -148,7 +152,7 @@ router.post('/api/devices', requireLogin, (req, res, next) => {
 // POST /api/update-transaction-status — atualiza status manualmente
 router.post('/api/update-transaction-status', requireLogin, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     const { transactionId, newStatus } = req.body;
     if (!transactionId || !newStatus) {
@@ -167,7 +171,7 @@ router.post('/api/update-transaction-status', requireLogin, (req, res, next) => 
         res.json({ success: true, message: `Status atualizado de "${oldStatus}" para "${newStatus}"`, transactionId, oldStatus, newStatus });
     } catch (error) {
         console.error('Erro ao atualizar status da transação:', error);
-        res.status(500).json({ error: 'Erro ao processar atualização de status', details: error.message });
+        res.status(500).json({ error: 'Erro ao processar atualização de status' });
     }
 });
 
@@ -188,7 +192,7 @@ router.get('/api/payment-settings', requireLogin, async (req, res) => {
 // POST /api/payment-settings/gateway — altera gateway ativo
 router.post('/api/payment-settings/gateway', requireLogin, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
         const { gateway } = req.body;
@@ -200,14 +204,14 @@ router.post('/api/payment-settings/gateway', requireLogin, (req, res, next) => {
         res.json({ success: true, message: `Gateway alterado para ${gateway} com sucesso.`, activeGateway: gateway });
     } catch (error) {
         console.error('Erro ao alterar gateway:', error);
-        res.status(500).json({ error: error.message || 'Erro ao alterar gateway de pagamento.' });
+        res.status(500).json({ error: 'Erro ao alterar gateway de pagamento.' });
     }
 });
 
 // POST /api/payment-settings/test — testa conexão com gateway
 router.post('/api/payment-settings/test', requireLogin, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
         const { gateway } = req.body;
@@ -239,7 +243,7 @@ router.post('/api/payment-settings/test', requireLogin, (req, res, next) => {
 // POST /api/simulate-webhook — simula webhook de pagamento confirmado (proteção: requireLogin)
 router.post('/api/simulate-webhook', requireLogin, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
         const { transactionId } = req.body;
@@ -258,8 +262,8 @@ router.post('/api/simulate-webhook', requireLogin, (req, res, next) => {
 
         res.json({ success: true, message: 'Webhook simulado com sucesso', purchase: { id: purchase.id, transactionId: purchase.transactionId, status: purchase.status, nome: purchase.nome } });
     } catch (error) {
-        console.error('[SIMULATE WEBHOOK] ❌ Erro:', error);
-        res.status(500).json({ error: error.message });
+        console.error('[SIMULATE WEBHOOK] Erro:', error);
+        res.status(500).json({ error: 'Erro ao simular webhook.' });
     }
 });
 
@@ -279,7 +283,7 @@ router.get('/api/debug-payment/:transactionId', requireLogin, async (req, res) =
         });
     } catch (error) {
         console.error('[DEBUG] Erro:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Erro ao buscar diagnóstico de pagamento.' });
     }
 });
 
@@ -315,7 +319,7 @@ router.get('/api/payment-flow-status', requireLogin, async (req, res) => {
         });
     } catch (error) {
         console.error('[PAYMENT FLOW STATUS] Erro:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Erro ao verificar status do fluxo de pagamento.' });
     }
 });
 

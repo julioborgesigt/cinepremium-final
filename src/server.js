@@ -13,8 +13,24 @@ const PORT = process.env.PORT || 3000;
 
 async function startServer() {
     try {
-        console.log('🚀 Inicializando servidor...');
-        console.log('✅ Servidor iniciando com variáveis de ambiente do Passenger...');
+        console.log('Inicializando servidor...');
+
+        // 0. Validação de variáveis críticas
+        if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+            throw new Error('SESSION_SECRET deve ser definido com pelo menos 32 caracteres.');
+        }
+        if (!process.env.ADMIN_USER || !process.env.ADMIN_PASS) {
+            throw new Error('ADMIN_USER e ADMIN_PASS devem ser definidos.');
+        }
+        if (process.env.ADMIN_PASS && !process.env.ADMIN_PASS.startsWith('$2')) {
+            console.warn('[SEGURANÇA] ADMIN_PASS não parece ser um hash bcrypt válido.');
+        }
+        if (process.env.NODE_ENV === 'production' && !process.env.CIABRA_WEBHOOK_URL) {
+            console.warn('[SEGURANÇA] CIABRA_WEBHOOK_URL não definido — webhooks não funcionarão.');
+        }
+        if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
+            console.warn('[SEGURANÇA] ALLOWED_ORIGINS não definido — CORS rejeitará requisições cross-origin.');
+        }
 
         // 1. Inicializa Firebase (não bloqueia)
         initFirebase();

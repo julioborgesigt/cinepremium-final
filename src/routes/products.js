@@ -25,7 +25,7 @@ router.get('/api/products', async (req, res) => {
 // POST /api/products — cria produto (admin)
 router.post('/api/products', requireLogin, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
         const { price, image } = req.body;
@@ -57,7 +57,7 @@ router.post('/api/products', requireLogin, (req, res, next) => {
 // PUT /api/products/reorder — reordena produtos (admin)
 router.put('/api/products/reorder', requireLogin, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
         const { order } = req.body;
@@ -79,7 +79,7 @@ router.put('/api/products/reorder', requireLogin, (req, res, next) => {
 // DELETE /api/products/:id — exclui produto (admin)
 router.delete('/api/products/:id', requireLogin, (req, res, next) => {
     const applyCsrf = getApplyCsrf(req);
-    if (applyCsrf) { applyCsrf(req, res, next); } else { next(); }
+    applyCsrf(req, res, next);
 }, async (req, res) => {
     try {
         const { id } = req.params;
