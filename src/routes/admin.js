@@ -2,7 +2,7 @@
 
 const express = require('express');
 const path = require('path');
-const { Op } = require('sequelize');
+const { Op, fn, col, literal } = require('sequelize');
 const { PurchaseHistory, AdminDevice } = require('../../models');
 const { requireLogin } = require('../middlewares/auth');
 const {
@@ -76,7 +76,7 @@ router.get('/api/purchase-history', requireLogin, async (req, res) => {
     }
 });
 
-// GET /api/statistics — estatísticas de vendas
+// GET /api/statistics — estatísticas de vendas (usando agregações SQL para performance)
 router.get('/api/statistics', requireLogin, async (req, res) => {
     try {
         const now = new Date();
@@ -86,24 +86,34 @@ router.get('/api/statistics', requireLogin, async (req, res) => {
         const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
         const startOfLastMonth = new Date(currentYear, currentMonth - 1, 1);
         const endOfLastMonth = new Date(currentYear, currentMonth, 0, 23, 59, 59);
-
-        const currentMonthSales = await PurchaseHistory.findAll({ where: { status: 'Sucesso', dataTransacao: { [Op.between]: [startOfMonth, endOfMonth] } } });
-        const lastMonthSales = await PurchaseHistory.findAll({ where: { status: 'Sucesso', dataTransacao: { [Op.between]: [startOfLastMonth, endOfLastMonth] } } });
-        const allSuccessfulSales = await PurchaseHistory.findAll({ where: { status: 'Sucesso' } });
-
-        const currentMonthTotal = currentMonthSales.reduce((sum, s) => sum + (s.valorPago || 0), 0);
-        const lastMonthTotal = lastMonthSales.reduce((sum, s) => sum + (s.valorPago || 0), 0);
-        const totalRevenue = allSuccessfulSales.reduce((sum, s) => sum + (s.valorPago || 0), 0);
-
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
         const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-        const todaySales = await PurchaseHistory.count({ where: { status: 'Sucesso', dataTransacao: { [Op.between]: [startOfToday, endOfToday] } } });
-        const pendingCount = await PurchaseHistory.count({ where: { status: 'Gerado' } });
+
+        // Todas as agregações em paralelo, com SUM/COUNT direto no banco
+        const [currentMonthAgg, lastMonthAgg, allTimeAgg, todaySales, pendingCount] = await Promise.all([
+            PurchaseHistory.findOne({
+                attributes: [[fn('COUNT', col('id')), 'sales'], [fn('SUM', col('valorPago')), 'revenue']],
+                where: { status: 'Sucesso', dataTransacao: { [Op.between]: [startOfMonth, endOfMonth] } },
+                raw: true
+            }),
+            PurchaseHistory.findOne({
+                attributes: [[fn('COUNT', col('id')), 'sales'], [fn('SUM', col('valorPago')), 'revenue']],
+                where: { status: 'Sucesso', dataTransacao: { [Op.between]: [startOfLastMonth, endOfLastMonth] } },
+                raw: true
+            }),
+            PurchaseHistory.findOne({
+                attributes: [[fn('COUNT', col('id')), 'sales'], [fn('SUM', col('valorPago')), 'revenue']],
+                where: { status: 'Sucesso' },
+                raw: true
+            }),
+            PurchaseHistory.count({ where: { status: 'Sucesso', dataTransacao: { [Op.between]: [startOfToday, endOfToday] } } }),
+            PurchaseHistory.count({ where: { status: 'Gerado' } })
+        ]);
 
         res.json({
-            currentMonth: { sales: currentMonthSales.length, revenue: currentMonthTotal },
-            lastMonth: { sales: lastMonthSales.length, revenue: lastMonthTotal },
-            allTime: { sales: allSuccessfulSales.length, revenue: totalRevenue },
+            currentMonth: { sales: parseInt(currentMonthAgg.sales) || 0, revenue: parseInt(currentMonthAgg.revenue) || 0 },
+            lastMonth: { sales: parseInt(lastMonthAgg.sales) || 0, revenue: parseInt(lastMonthAgg.revenue) || 0 },
+            allTime: { sales: parseInt(allTimeAgg.sales) || 0, revenue: parseInt(allTimeAgg.revenue) || 0 },
             today: { sales: todaySales },
             pending: pendingCount
         });

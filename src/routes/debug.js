@@ -43,8 +43,8 @@ router.get('/health', async (req, res) => {
     }
 });
 
-// GET /debug-logs — logs de debug do servidor (público — ver auditoria item 1.1)
-router.get('/debug-logs', (req, res) => {
+// GET /debug-logs — logs de debug do servidor (protegido)
+router.get('/debug-logs', requireLogin, (req, res) => {
     const limit = parseInt(req.query.limit) || 100;
     res.json({
         timestamp: new Date().toISOString(),
