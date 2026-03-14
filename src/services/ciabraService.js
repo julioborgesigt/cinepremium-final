@@ -19,6 +19,65 @@ const GATEWAY_CACHE_TTL = 60000; // 1 minuto
 const pixCodesCache = new Map();
 const PIX_CACHE_TTL = 10 * 60 * 1000; // 10 minutos
 
+// Browser singleton para reutilização entre chamadas
+let browserInstance = null;
+let browserLastUsed = 0;
+const BROWSER_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutos sem uso → fecha o browser
+
+async function getOrCreateBrowser() {
+    if (browserInstance) {
+        try {
+            // Verifica se o browser ainda está ativo
+            await browserInstance.version();
+            browserLastUsed = Date.now();
+            return browserInstance;
+        } catch (e) {
+            addDebugLog('[BROWSER POOL] Browser anterior não está mais ativo, criando novo...');
+            browserInstance = null;
+        }
+    }
+
+    addDebugLog('[BROWSER POOL] Lançando novo browser...');
+    browserInstance = await puppeteer.launch({
+        headless: true,
+        executablePath: '/usr/bin/chromium-browser',
+        args: [
+            '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas', '--disable-gpu',
+            '--disable-software-rasterizer', '--disable-extensions',
+            '--disable-background-networking', '--disable-default-apps',
+            '--disable-sync', '--disable-translate',
+            '--metrics-recording-only', '--no-first-run',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding',
+            '--disable-component-update',
+            '--disable-ipc-flooding-protection',
+            '--single-process'
+        ]
+    });
+    browserLastUsed = Date.now();
+
+    // Auto-fechar browser após período de inatividade
+    const idleCheck = setInterval(async () => {
+        if (Date.now() - browserLastUsed > BROWSER_IDLE_TIMEOUT) {
+            clearInterval(idleCheck);
+            if (browserInstance) {
+                try {
+                    await browserInstance.close();
+                    addDebugLog('[BROWSER POOL] Browser fechado por inatividade');
+                } catch (e) { /* já fechado */ }
+                browserInstance = null;
+            }
+        }
+    }, 60000);
+
+    return browserInstance;
+}
+
+// Tipos de recursos a bloquear na automação (não necessários para capturar dados PIX)
+const BLOCKED_RESOURCE_TYPES = new Set(['image', 'stylesheet', 'font', 'media']);
+
 // Array de debug logs (compartilhado com o app)
 const debugLogs = [];
 const MAX_DEBUG_LOGS = process.env.NODE_ENV === 'production' ? 200 : 1000;
@@ -157,159 +216,143 @@ async function getCiabraInvoiceDetails(invoiceId) {
 }
 
 async function generateCiabraPixWithAutomation(installmentId) {
-    let browser = null;
+    let page = null;
     try {
         addDebugLog('[CIABRA AUTOMATION] Iniciando automação para installment: ' + installmentId);
-        browser = await puppeteer.launch({
-            headless: true,
-            executablePath: '/usr/bin/chromium-browser',
-            args: [
-                '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas', '--disable-gpu',
-                '--disable-software-rasterizer', '--disable-extensions'
-            ]
+        const startTime = Date.now();
+
+        const browser = await getOrCreateBrowser();
+        addDebugLog(`[CIABRA AUTOMATION] Browser pronto em ${Date.now() - startTime}ms`);
+
+        page = await browser.newPage();
+
+        // Viewport mínimo para performance
+        await page.setViewport({ width: 800, height: 600 });
+
+        // Desabilitar cache e recursos desnecessários via request interception
+        await page.setRequestInterception(true);
+
+        let pixPaymentData = null;
+        let pixResponsePromise = null;
+
+        // Criar promise que resolve quando a resposta PIX chegar
+        pixResponsePromise = new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('Timeout aguardando resposta PIX (15s)')), 15000);
+
+            page.on('response', async (response) => {
+                const url = response.url();
+                if (url.includes('/api/payments/pix')) {
+                    try {
+                        const data = await response.json();
+                        addDebugLog('[CIABRA AUTOMATION] Capturado resposta do PIX');
+                        pixPaymentData = data;
+                        clearTimeout(timeout);
+                        resolve(data);
+                    } catch (e) {
+                        addDebugLog('[CIABRA AUTOMATION] Erro ao parsear resposta: ' + e.message);
+                    }
+                }
+            });
         });
 
-        const page = await browser.newPage();
-        let pixPaymentData = null;
-
-        await page.setRequestInterception(true);
-        page.on('request', (request) => request.continue());
-        page.on('response', async (response) => {
-            const url = response.url();
-            if (url.includes('/api/payments/pix')) {
-                try {
-                    const data = await response.json();
-                    addDebugLog('[CIABRA AUTOMATION] Capturado resposta do PIX: ' + JSON.stringify(data, null, 2));
-                    pixPaymentData = data;
-                } catch (e) {
-                    addDebugLog('[CIABRA AUTOMATION] Erro ao parsear resposta: ' + e.message);
-                }
+        // Bloquear recursos desnecessários (imagens, fontes, CSS) para acelerar carregamento
+        page.on('request', (request) => {
+            if (BLOCKED_RESOURCE_TYPES.has(request.resourceType())) {
+                request.abort();
+            } else {
+                request.continue();
             }
         });
 
         const paymentUrl = `https://pagar.ciabra.com.br/i/${installmentId}`;
         addDebugLog('[CIABRA AUTOMATION] Acessando: ' + paymentUrl);
-        await page.goto(paymentUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-        addDebugLog('[CIABRA AUTOMATION] Página carregada com sucesso');
 
-        if (process.env.NODE_ENV !== 'production') {
-            const screenshotPath = `/tmp/ciabra_${installmentId}_1.png`;
-            await page.screenshot({ path: screenshotPath });
-            addDebugLog('[CIABRA AUTOMATION] Screenshot salvo: ' + screenshotPath);
-            const buttons = await page.$$eval('button', btns => btns.map(b => ({ text: b.textContent.trim() })));
-            addDebugLog('[CIABRA AUTOMATION] Botões encontrados: ' + JSON.stringify(buttons));
-        }
+        // domcontentloaded é mais rápido que networkidle2 — não precisamos esperar todos os recursos
+        await page.goto(paymentUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        addDebugLog(`[CIABRA AUTOMATION] Página carregada em ${Date.now() - startTime}ms`);
 
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        addDebugLog('[CIABRA AUTOMATION] Procurando botão PIX...');
+        // Esperar o botão PIX aparecer no DOM em vez de delay fixo de 3s
+        addDebugLog('[CIABRA AUTOMATION] Aguardando botão PIX aparecer...');
         let pixButton = null;
 
         try {
-            pixButton = await page.$('button:has-text("PIX")');
-            if (pixButton) addDebugLog('[CIABRA AUTOMATION] Botão PIX encontrado via CSS :has-text');
-        } catch (e) {
-            addDebugLog('[CIABRA AUTOMATION] Método CSS falhou: ' + e.message);
-        }
-
-        if (!pixButton) {
-            try {
-                const pixButtons = await page.$x("//button[contains(translate(text(), 'PIX', 'pix'), 'pix')]");
-                if (pixButtons.length > 0) {
-                    pixButton = pixButtons[0];
-                    addDebugLog('[CIABRA AUTOMATION] Botão PIX encontrado via XPath');
-                }
-            } catch (e) {
-                addDebugLog('[CIABRA AUTOMATION] Método XPath falhou: ' + e.message);
-            }
-        }
-
-        if (!pixButton) {
-            try {
-                const allClickable = await page.$$('button, a, div[onclick], [role="button"]');
-                for (const el of allClickable) {
-                    const text = await page.evaluate(e => e.textContent, el);
-                    if (text && text.toUpperCase().includes('PIX')) {
-                        pixButton = el;
-                        addDebugLog('[CIABRA AUTOMATION] Botão PIX encontrado via busca manual: ' + text);
-                        break;
+            // Espera até 5s pelo botão aparecer, verificando a cada 100ms via page.evaluate
+            pixButton = await page.waitForFunction(() => {
+                const buttons = document.querySelectorAll('button, a, div[onclick], [role="button"]');
+                for (const btn of buttons) {
+                    if (btn.textContent && btn.textContent.toUpperCase().includes('PIX')) {
+                        return btn;
                     }
                 }
-            } catch (e) {
-                addDebugLog('[CIABRA AUTOMATION] Método busca manual falhou: ' + e.message);
+                return null;
+            }, { timeout: 5000 });
+            addDebugLog('[CIABRA AUTOMATION] Botão PIX encontrado via waitForFunction');
+        } catch (e) {
+            addDebugLog('[CIABRA AUTOMATION] waitForFunction para PIX falhou, tentando busca direta...');
+        }
+
+        // Fallback: busca direta se waitForFunction falhou
+        if (!pixButton) {
+            const allClickable = await page.$$('button, a, div[onclick], [role="button"]');
+            for (const el of allClickable) {
+                const text = await page.evaluate(e => e.textContent, el);
+                if (text && text.toUpperCase().includes('PIX')) {
+                    pixButton = el;
+                    addDebugLog('[CIABRA AUTOMATION] Botão PIX encontrado via busca direta');
+                    break;
+                }
             }
         }
 
-        if (!pixButton) throw new Error('Botão PIX não encontrado na página após 3 tentativas');
+        if (!pixButton) throw new Error('Botão PIX não encontrado na página');
 
         await pixButton.click();
-        addDebugLog('[CIABRA AUTOMATION] Clicou em PIX');
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        addDebugLog(`[CIABRA AUTOMATION] Clicou em PIX em ${Date.now() - startTime}ms`);
 
-        if (process.env.NODE_ENV !== 'production') {
-            const screenshotPath2 = `/tmp/ciabra_${installmentId}_2.png`;
-            await page.screenshot({ path: screenshotPath2 });
-            addDebugLog('[CIABRA AUTOMATION] Screenshot após PIX: ' + screenshotPath2);
-            const buttons2 = await page.$$eval('button', btns => btns.map(b => ({ text: b.textContent.trim() })));
-            addDebugLog('[CIABRA AUTOMATION] Botões após clicar em PIX: ' + JSON.stringify(buttons2));
-        }
-
+        // Esperar o botão "Pagar" aparecer no DOM em vez de delay fixo de 2s
+        addDebugLog('[CIABRA AUTOMATION] Aguardando botão Pagar aparecer...');
         let pagarButton = null;
 
         try {
-            const pagarButtons = await page.$x("//*[contains(text(), 'Pagar')]");
-            if (pagarButtons.length > 0) {
-                pagarButton = pagarButtons[0];
-                addDebugLog('[CIABRA AUTOMATION] Botão Pagar encontrado via XPath');
-            }
+            pagarButton = await page.waitForFunction(() => {
+                const elements = document.querySelectorAll('button, span[class*="Button"], div[onclick], [role="button"]');
+                for (const el of elements) {
+                    if (el.textContent && el.textContent.includes('Pagar')) {
+                        return el;
+                    }
+                }
+                return null;
+            }, { timeout: 5000 });
+            addDebugLog('[CIABRA AUTOMATION] Botão Pagar encontrado via waitForFunction');
         } catch (e) {
-            addDebugLog('[CIABRA AUTOMATION] XPath para Pagar falhou: ' + e.message);
+            addDebugLog('[CIABRA AUTOMATION] waitForFunction para Pagar falhou, tentando busca direta...');
         }
 
+        // Fallback: busca direta
         if (!pagarButton) {
-            try {
-                const mantineButtons = await page.$$('button[class*="mantine-Button"], span[class*="mantine-Button"]');
-                for (const btn of mantineButtons) {
-                    const text = await page.evaluate(el => el.textContent, btn);
-                    if (text && text.includes('Pagar')) {
-                        pagarButton = btn;
-                        addDebugLog('[CIABRA AUTOMATION] Botão Pagar encontrado via Mantine: ' + text);
-                        break;
-                    }
+            const allClickable = await page.$$('button, span[class*="Button"], div[onclick], [role="button"]');
+            for (const el of allClickable) {
+                const text = await page.evaluate(e => e.textContent, el);
+                if (text && text.includes('Pagar')) {
+                    pagarButton = el;
+                    addDebugLog('[CIABRA AUTOMATION] Botão Pagar encontrado via busca direta');
+                    break;
                 }
-            } catch (e) {
-                addDebugLog('[CIABRA AUTOMATION] Método Mantine falhou: ' + e.message);
             }
         }
 
-        if (!pagarButton) {
-            try {
-                const allClickable = await page.$$('button, span[class*="Button"], div[onclick], [role="button"]');
-                for (const el of allClickable) {
-                    const text = await page.evaluate(e => e.textContent, el);
-                    if (text && text.includes('Pagar')) {
-                        pagarButton = el;
-                        addDebugLog('[CIABRA AUTOMATION] Botão Pagar encontrado via busca manual: ' + text);
-                        break;
-                    }
-                }
-            } catch (e) {
-                addDebugLog('[CIABRA AUTOMATION] Busca manual para Pagar falhou: ' + e.message);
-            }
-        }
+        if (!pagarButton) throw new Error('Botão Pagar não encontrado na página');
 
-        if (!pagarButton) throw new Error('Botão Pagar não encontrado na página após 3 tentativas');
-
+        // Clicar em Pagar e esperar a resposta real da API em vez de delay fixo de 5s
         await pagarButton.click();
-        addDebugLog('[CIABRA AUTOMATION] Clicou em Pagar');
+        addDebugLog(`[CIABRA AUTOMATION] Clicou em Pagar em ${Date.now() - startTime}ms`);
 
-        addDebugLog('[CIABRA AUTOMATION] Aguardando resposta do pagamento...');
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // Esperar a resposta real da API PIX (máx 15s) em vez de delay fixo de 5s
+        addDebugLog('[CIABRA AUTOMATION] Aguardando resposta da API PIX...');
+        await pixResponsePromise;
 
-        if (!pixPaymentData) throw new Error('Não foi possível capturar dados do pagamento PIX');
-
-        addDebugLog('[CIABRA AUTOMATION] Pagamento PIX gerado com sucesso!');
+        const totalTime = Date.now() - startTime;
+        addDebugLog(`[CIABRA AUTOMATION] Pagamento PIX gerado com sucesso em ${totalTime}ms!`);
         return pixPaymentData;
 
     } catch (error) {
@@ -318,9 +361,11 @@ async function generateCiabraPixWithAutomation(installmentId) {
         console.error('[CIABRA AUTOMATION] ===============================');
         throw error;
     } finally {
-        if (browser) {
-            await browser.close();
-            console.log('[CIABRA AUTOMATION] Navegador fechado');
+        // Fecha apenas a página, não o browser (reutilizado)
+        if (page) {
+            try {
+                await page.close();
+            } catch (e) { /* página já fechada */ }
         }
     }
 }
