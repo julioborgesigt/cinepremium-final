@@ -15,10 +15,6 @@ let cachedActiveGateway = null;
 let gatewayLastFetch = 0;
 const GATEWAY_CACHE_TTL = 60000; // 1 minuto
 
-// Cache para códigos PIX temporários (installmentId → pixData)
-const pixCodesCache = new Map();
-const PIX_CACHE_TTL = 10 * 60 * 1000; // 10 minutos
-
 // Browser singleton para reutilização entre chamadas
 let browserInstance = null;
 let browserLastUsed = 0;
@@ -149,21 +145,23 @@ async function createCiabraCustomer(customerData) {
         const response = await axios.post(
             `${CIABRA_API_URL}/invoices/applications/customers`,
             customerData,
-            { headers: { Authorization: `Basic ${authToken}`, 'Content-Type': 'application/json' } }
+            { headers: { Authorization: `Basic ${authToken}`, 'Content-Type': 'application/json' }, timeout: 30000 }
         );
         console.log('[CIABRA] Cliente criado com sucesso. ID:', response.data?.id);
         return response.data;
     } catch (error) {
-        console.error('[CIABRA] ===== ERRO AO CRIAR CLIENTE =====');
-        console.error('[CIABRA] Error message:', error.message);
         if (error.response) {
-            console.error('[CIABRA] HTTP Status:', error.response.status);
-            console.error('[CIABRA] Response data:', JSON.stringify(error.response.data, null, 2));
-            if (error.response.status === 409 || error.response.status === 400) {
-                console.log('[CIABRA] Cliente pode já existir. Detalhes:', error.response.data);
+            const status = error.response.status;
+            const responseData = error.response.data;
+            console.error(`[CIABRA] Erro ao criar cliente — HTTP ${status}:`, JSON.stringify(responseData));
+            // 409 = cliente já existe; alguns gateways retornam 400 com o recurso existente
+            if ((status === 409 || status === 400) && responseData?.id) {
+                console.log(`[CIABRA] Reusando cliente existente. ID: ${responseData.id}`);
+                return responseData;
             }
+        } else {
+            console.error('[CIABRA] Erro ao criar cliente:', error.message);
         }
-        console.error('[CIABRA] ========================================');
         throw error;
     }
 }
@@ -178,7 +176,7 @@ async function createCiabraInvoice(payload) {
         const response = await axios.post(
             `${CIABRA_API_URL}/invoices/applications/invoices`,
             payload,
-            { headers: { Authorization: `Basic ${authToken}`, 'Content-Type': 'application/json' } }
+            { headers: { Authorization: `Basic ${authToken}`, 'Content-Type': 'application/json' }, timeout: 30000 }
         );
         console.log('[CIABRA] Cobrança criada com sucesso. ID:', response.data?.id);
         return response.data;
@@ -190,27 +188,6 @@ async function createCiabraInvoice(payload) {
             console.error('[CIABRA] Response data:', JSON.stringify(error.response.data, null, 2));
         }
         console.error('[CIABRA] ========================================');
-        throw error;
-    }
-}
-
-async function getCiabraInvoiceDetails(invoiceId) {
-    const authToken = getCiabraAuthToken();
-    if (!authToken) throw new Error('Credenciais CIABRA não configuradas');
-    try {
-        const response = await axios.get(
-            `${CIABRA_API_URL}/invoices/applications/invoices/${invoiceId}`,
-            { headers: { Authorization: `Basic ${authToken}`, 'Content-Type': 'application/json' } }
-        );
-        return response.data;
-    } catch (error) {
-        console.error('[CIABRA] ===== ERRO AO OBTER DETALHES DO INVOICE =====');
-        console.error('[CIABRA] Error message:', error.message);
-        if (error.response) {
-            console.error('[CIABRA] HTTP Status:', error.response.status);
-            console.error('[CIABRA] Response data:', JSON.stringify(error.response.data, null, 2));
-        }
-        console.error('[CIABRA] ====================================================');
         throw error;
     }
 }
@@ -404,7 +381,6 @@ module.exports = {
     CIABRA_PRIVATE_KEY,
     CIABRA_WEBHOOK_URL,
     cachedActiveGateway: () => cachedActiveGateway,
-    pixCodesCache,
     debugLogs,
     addDebugLog,
     getCiabraAuthToken,
@@ -412,7 +388,6 @@ module.exports = {
     setActivePaymentGateway,
     createCiabraCustomer,
     createCiabraInvoice,
-    getCiabraInvoiceDetails,
     generateCiabraPixWithAutomation,
     checkCiabraAuth,
     generateQrCodeBase64

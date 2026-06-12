@@ -3,11 +3,8 @@
 const express = require('express');
 const { PurchaseHistory } = require('../../models');
 const { webhookLimiter } = require('../middlewares/rateLimiters');
-const { requireLogin } = require('../middlewares/auth');
-const { addDebugLog, pixCodesCache, CIABRA_WEBHOOK_URL } = require('../services/ciabraService');
+const { addDebugLog } = require('../services/ciabraService');
 const { sendPushNotification } = require('../services/firebaseService');
-
-const PIX_CACHE_TTL = 10 * 60 * 1000; // 10 minutos
 
 // IPs confiáveis da CIABRA (configure via CIABRA_ALLOWED_IPS no .env, separados por vírgula)
 // Se CIABRA_ALLOWED_IPS não estiver definido, aceita qualquer IP (fail-open).
@@ -24,23 +21,6 @@ function isTrustedWebhookIp(ip) {
 
 const router = express.Router();
 
-// POST /test-webhook — simula webhook PAYMENT_GENERATED (apenas em desenvolvimento)
-if (process.env.NODE_ENV !== 'production') {
-    router.post('/test-webhook', requireLogin, async (req, res) => {
-        const { installmentId, emv } = req.body;
-        if (!installmentId || !emv) {
-            return res.status(400).json({ error: 'installmentId e emv são obrigatórios' });
-        }
-        addDebugLog(`[TEST] Simulando webhook para installment: ${installmentId}`);
-        pixCodesCache.set(installmentId, {
-            emv,
-            payment: { emv, status: 'WAITING' },
-            timestamp: Date.now()
-        });
-        addDebugLog(`[TEST] Código PIX armazenado! Cache size: ${pixCodesCache.size}`);
-        res.json({ status: 'ok', message: 'Webhook simulado com sucesso' });
-    });
-}
 
 // POST /ciabra-webhook — recebe webhooks da CIABRA
 router.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
@@ -61,29 +41,10 @@ router.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
         console.log(`[CIABRA WEBHOOK] 📊 Evento: ${hookType}`);
 
         if (hookType === 'PAYMENT_GENERATED') {
-            addDebugLog('[WEBHOOK] 🔑 PAYMENT_GENERATED recebido!');
-            if (payment && installment) {
-                const installmentId = installment.id;
-                const pixCode = payment.emv;
-                addDebugLog(`[WEBHOOK] InstallmentId: ${installmentId}`);
-                addDebugLog(`[WEBHOOK] PIX Code: ${pixCode ? 'Presente (' + pixCode.length + ' chars)' : 'Ausente'}`);
-
-                if (pixCode && installmentId) {
-                    pixCodesCache.set(installmentId, { emv: pixCode, payment, timestamp: Date.now() });
-                    addDebugLog(`[WEBHOOK] ✅ Código PIX armazenado! Cache size: ${pixCodesCache.size}`);
-                    setTimeout(() => {
-                        if (pixCodesCache.has(installmentId)) {
-                            pixCodesCache.delete(installmentId);
-                            console.log(`[CIABRA WEBHOOK] 🗑️ Cache expirado para installment ${installmentId}`);
-                        }
-                    }, PIX_CACHE_TTL);
-                } else {
-                    addDebugLog('[WEBHOOK] ⚠️ Código PIX ou installmentId ausente');
-                }
-            } else {
-                addDebugLog('[WEBHOOK] ⚠️ payment ou installment ausente no body');
-            }
-            return res.status(200).json({ status: 'pix_stored' });
+            // O código PIX é capturado diretamente via automação Puppeteer em /gerarqrcode.
+            // Apenas confirmamos o recebimento do evento.
+            addDebugLog('[WEBHOOK] PAYMENT_GENERATED recebido — acknowledged');
+            return res.status(200).json({ status: 'acknowledged' });
         }
 
         if (hookType !== 'PAYMENT_CONFIRMED') {

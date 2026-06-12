@@ -13,7 +13,6 @@ const {
     createCiabraInvoice,
     generateCiabraPixWithAutomation,
     generateQrCodeBase64,
-    pixCodesCache,
     addDebugLog,
     CIABRA_PUBLIC_KEY,
     CIABRA_PRIVATE_KEY,
