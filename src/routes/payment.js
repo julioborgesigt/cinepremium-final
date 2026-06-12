@@ -13,7 +13,6 @@ const {
     createCiabraInvoice,
     generateCiabraPixWithAutomation,
     generateQrCodeBase64,
-    pixCodesCache,
     addDebugLog,
     CIABRA_PUBLIC_KEY,
     CIABRA_PRIVATE_KEY,
@@ -104,7 +103,7 @@ router.post('/gerarqrcode', qrCodeLimiter, (req, res, next) => {
                     throw new Error(`Preço calculado inválido: ${ciabraPrice}`);
                 }
 
-                const cleanPhone = telefone ? String(telefone).replace(/\D/g, '') : undefined;
+                const cleanPhone = telefone ? `+55${String(telefone).replace(/\D/g, '')}` : undefined;
                 const cleanDocument = cpf ? String(cpf).replace(/\D/g, '') : undefined;
                 const cleanDescription = `${productTitle || 'Produto'} - ${productDescription || ''}`.trim().substring(0, 100);
 
@@ -286,16 +285,23 @@ router.post('/api/check-ciabra-payment', statusCheckLimiter, (req, res, next) =>
             });
 
             const apiData = response.data;
-            if (apiData.payment && apiData.payment.status) {
-                const paymentStatus = apiData.payment.status.toUpperCase();
-                if (paymentStatus === 'CONFIRMED' || paymentStatus === 'PAID' || paymentStatus === 'SUCCESS') {
-                    await purchase.update({ status: 'Sucesso' });
-                    sendPushNotification('Venda Paga com Sucesso!', `O pagamento de ${purchase.nome} foi confirmado (CIABRA Polling).`);
-                    return res.json({ status: 'Sucesso', source: 'ciabra_api', paymentId: apiData.payment.id });
-                }
+            // Docs CIABRA: payment.status = 'CONFIRMED' ou pix.status = 'PAID' indicam pagamento confirmado.
+            const isConfirmed =
+                apiData.payment?.status?.toUpperCase() === 'CONFIRMED' ||
+                apiData.pix?.status?.toUpperCase() === 'PAID';
+
+            if (isConfirmed) {
+                await purchase.update({ status: 'Sucesso' });
+                sendPushNotification('Venda Paga com Sucesso!', `O pagamento de ${purchase.nome} foi confirmado (CIABRA Polling).`);
+                return res.json({ status: 'Sucesso', source: 'ciabra_api' });
             }
 
-            return res.json({ status: purchase.status, source: 'ciabra_api', paymentStatus: apiData.payment ? apiData.payment.status : null });
+            return res.json({
+                status: purchase.status,
+                source: 'ciabra_api',
+                paymentStatus: apiData.payment?.status || null,
+                pixStatus: apiData.pix?.status || null
+            });
         } catch (apiError) {
             console.error(`[CIABRA POLLING] ❌ Erro ao consultar API:`, apiError.message);
             return res.json({ status: purchase.status, source: 'local_fallback' });

@@ -3,7 +3,7 @@
 const express = require('express');
 const { sequelize } = require('../../models');
 const { requireLogin } = require('../middlewares/auth');
-const { debugLogs, pixCodesCache, cachedActiveGateway: getCachedActiveGateway } = require('../services/ciabraService');
+const { debugLogs, cachedActiveGateway: getCachedActiveGateway } = require('../services/ciabraService');
 const { getRedisClient, getSessionStore } = require('../config/redis');
 const { isInitialized: isFirebaseInitialized } = require('../services/firebaseService');
 
@@ -52,10 +52,6 @@ if (process.env.NODE_ENV !== 'production') {
                 uptime: process.uptime(),
                 memory: process.memoryUsage(),
                 activeGateway: getCachedActiveGateway()
-            },
-            cache: {
-                pixCodesSize: pixCodesCache.size,
-                pixCodes: Array.from(pixCodesCache.keys())
             },
             logs: {
                 total: debugLogs.length,

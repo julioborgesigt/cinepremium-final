@@ -3,131 +3,88 @@
 const express = require('express');
 const { PurchaseHistory } = require('../../models');
 const { webhookLimiter } = require('../middlewares/rateLimiters');
-const { requireLogin } = require('../middlewares/auth');
-const { addDebugLog, pixCodesCache, CIABRA_WEBHOOK_URL } = require('../services/ciabraService');
+const { addDebugLog } = require('../services/ciabraService');
 const { sendPushNotification } = require('../services/firebaseService');
 
-const PIX_CACHE_TTL = 10 * 60 * 1000; // 10 minutos
-
-// IPs confiáveis da CIABRA (configure via CIABRA_ALLOWED_IPS no .env, separados por vírgula)
-// Se CIABRA_ALLOWED_IPS não estiver definido, aceita qualquer IP (fail-open).
-// Recomendação: configure CIABRA_ALLOWED_IPS em produção para restringir acesso.
-function isTrustedWebhookIp(ip) {
-    const allowedIpsEnv = process.env.CIABRA_ALLOWED_IPS;
-    if (!allowedIpsEnv) {
-        return true; // Aceita qualquer IP quando não configurado
+// Valida o header x-ciabra-pub enviado pela CIABRA em cada notificação.
+// Docs: cada notificação inclui x-ciabra-pub com a chave pública da aplicação.
+// Fail-closed: rejeita se CIABRA_PUBLIC_KEY não estiver configurada.
+function isTrustedWebhook(req) {
+    if (!process.env.CIABRA_PUBLIC_KEY) {
+        console.error('[CIABRA WEBHOOK] CIABRA_PUBLIC_KEY não configurado — rejeitando webhook');
+        return false;
     }
-    const allowedIps = allowedIpsEnv.split(',').map(s => s.trim()).filter(Boolean);
-    const normalizedIp = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
-    return allowedIps.includes(normalizedIp);
+    const receivedKey = req.headers['x-ciabra-pub'];
+    return receivedKey === process.env.CIABRA_PUBLIC_KEY;
 }
 
 const router = express.Router();
 
-// POST /test-webhook — simula webhook PAYMENT_GENERATED (apenas em desenvolvimento)
-if (process.env.NODE_ENV !== 'production') {
-    router.post('/test-webhook', requireLogin, async (req, res) => {
-        const { installmentId, emv } = req.body;
-        if (!installmentId || !emv) {
-            return res.status(400).json({ error: 'installmentId e emv são obrigatórios' });
-        }
-        addDebugLog(`[TEST] Simulando webhook para installment: ${installmentId}`);
-        pixCodesCache.set(installmentId, {
-            emv,
-            payment: { emv, status: 'WAITING' },
-            timestamp: Date.now()
-        });
-        addDebugLog(`[TEST] Código PIX armazenado! Cache size: ${pixCodesCache.size}`);
-        res.json({ status: 'ok', message: 'Webhook simulado com sucesso' });
-    });
-}
-
 // POST /ciabra-webhook — recebe webhooks da CIABRA
 router.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
-    if (!isTrustedWebhookIp(req.ip)) {
-        console.warn(`[CIABRA WEBHOOK] ⛔ IP bloqueado: ${req.ip}`);
+    if (!isTrustedWebhook(req)) {
+        console.warn(`[CIABRA WEBHOOK] ⛔ Webhook rejeitado — x-ciabra-pub inválido. IP: ${req.ip}`);
         return res.status(403).json({ error: 'Acesso negado.' });
     }
-    console.log(`[CIABRA WEBHOOK] Webhook recebido — IP: ${req.ip}, hookType: ${req.body?.hookType || 'N/A'}`);
+
+    console.log(`[CIABRA WEBHOOK] Recebido — IP: ${req.ip}, type: ${req.body?.type || 'N/A'}`);
 
     try {
-        const { hookType, invoice, payment, installment } = req.body;
+        // Payload da CIABRA usa o campo "type" (não "hookType") e estrutura plana.
+        const { type, id: invoiceId, externalId, pricePaid } = req.body;
 
-        if (!hookType) {
-            console.warn('[CIABRA WEBHOOK] ⚠️ Webhook recebido sem hookType.', req.body);
-            return res.status(400).json({ error: 'hookType não informado.' });
+        if (!type) {
+            console.warn('[CIABRA WEBHOOK] ⚠️ Webhook sem type.', req.body);
+            return res.status(400).json({ error: 'type não informado.' });
         }
 
-        console.log(`[CIABRA WEBHOOK] 📊 Evento: ${hookType}`);
+        console.log(`[CIABRA WEBHOOK] Evento: ${type}`);
 
-        if (hookType === 'PAYMENT_GENERATED') {
-            addDebugLog('[WEBHOOK] 🔑 PAYMENT_GENERATED recebido!');
-            if (payment && installment) {
-                const installmentId = installment.id;
-                const pixCode = payment.emv;
-                addDebugLog(`[WEBHOOK] InstallmentId: ${installmentId}`);
-                addDebugLog(`[WEBHOOK] PIX Code: ${pixCode ? 'Presente (' + pixCode.length + ' chars)' : 'Ausente'}`);
-
-                if (pixCode && installmentId) {
-                    pixCodesCache.set(installmentId, { emv: pixCode, payment, timestamp: Date.now() });
-                    addDebugLog(`[WEBHOOK] ✅ Código PIX armazenado! Cache size: ${pixCodesCache.size}`);
-                    setTimeout(() => {
-                        if (pixCodesCache.has(installmentId)) {
-                            pixCodesCache.delete(installmentId);
-                            console.log(`[CIABRA WEBHOOK] 🗑️ Cache expirado para installment ${installmentId}`);
-                        }
-                    }, PIX_CACHE_TTL);
-                } else {
-                    addDebugLog('[WEBHOOK] ⚠️ Código PIX ou installmentId ausente');
-                }
-            } else {
-                addDebugLog('[WEBHOOK] ⚠️ payment ou installment ausente no body');
-            }
-            return res.status(200).json({ status: 'pix_stored' });
+        if (type === 'PAYMENT_GENERATED') {
+            // Código PIX já capturado via Puppeteer em /gerarqrcode — confirma recebimento.
+            addDebugLog('[WEBHOOK] PAYMENT_GENERATED recebido — acknowledged');
+            return res.status(200).json({ status: 'acknowledged' });
         }
 
-        if (hookType !== 'PAYMENT_CONFIRMED') {
-            console.log(`[CIABRA WEBHOOK] ℹ️ Evento '${hookType}' não é de confirmação. Ignorando.`);
-            return res.status(200).json({ status: 'ignored', hookType });
+        if (type !== 'INVOICE_PAYMENT_CONFIRMED') {
+            console.log(`[CIABRA WEBHOOK] Evento '${type}' ignorado.`);
+            return res.status(200).json({ status: 'ignored', type });
         }
 
-        let transactionId = null;
-        let externalId = null;
-        if (invoice) {
-            transactionId = invoice.id;
-            externalId = invoice.externalId;
-        }
+        // INVOICE_PAYMENT_CONFIRMED — o pagamento foi confirmado pela instituição financeira.
+        console.log(`[CIABRA WEBHOOK] Invoice ID: ${invoiceId} | External ID: ${externalId}`);
 
-        console.log(`[CIABRA WEBHOOK] 📊 Invoice ID: ${transactionId}`);
-        console.log(`[CIABRA WEBHOOK] 📊 External ID: ${externalId}`);
-
-        if (!transactionId && !externalId) {
+        if (!invoiceId && !externalId) {
             return res.status(400).json({ error: 'ID da transação não encontrado.' });
         }
 
         let purchase = null;
-        if (transactionId) {
-            purchase = await PurchaseHistory.findOne({ where: { transactionId } });
+        if (invoiceId) {
+            purchase = await PurchaseHistory.findOne({ where: { transactionId: invoiceId } });
         }
         if (!purchase && externalId) {
             purchase = await PurchaseHistory.findByPk(parseInt(externalId, 10));
         }
         if (!purchase) {
-            console.error(`[CIABRA WEBHOOK] ❌ Compra não encontrada para invoice: ${transactionId}`);
+            console.error(`[CIABRA WEBHOOK] ❌ Compra não encontrada para invoice: ${invoiceId}`);
             return res.status(404).json({ error: 'Compra não encontrada.' });
         }
 
         if (purchase.status === 'Sucesso') {
-            console.log(`[CIABRA WEBHOOK] ⚠️ Webhook duplicado ignorado. Compra ${purchase.id} já foi processada.`);
+            console.log(`[CIABRA WEBHOOK] Webhook duplicado ignorado. Compra ${purchase.id} já processada.`);
             return res.status(200).json({ status: 'already_processed' });
         }
 
-        await purchase.update({ status: 'Sucesso' });
+        // pricePaid vem em centavos (ex: 15000 = R$ 150,00), igual ao campo valorPago.
+        const updateData = { status: 'Sucesso' };
+        if (typeof pricePaid === 'number' && pricePaid > 0) {
+            updateData.valorPago = pricePaid;
+        }
+        await purchase.update(updateData);
         console.log(`[CIABRA WEBHOOK] ✅ Compra ${purchase.id} atualizada para 'Sucesso'.`);
 
         sendPushNotification('Venda Paga com Sucesso!', `O pagamento de ${purchase.nome} foi confirmado (CIABRA).`);
 
-        console.log('[CIABRA WEBHOOK] ✅ Webhook processado com sucesso!\n');
         res.status(200).json({ status: 'ok' });
 
     } catch (error) {
