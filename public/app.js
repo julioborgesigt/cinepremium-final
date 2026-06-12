@@ -209,10 +209,8 @@ document.getElementById('generateBtn').addEventListener('click', async function(
   try {
     const token = await getCsrfToken();
     const payload = {
-      value: selectedProduct.price,
-      nome, telefone, cpf, email,
-      productTitle: selectedProduct.title,
-      productDescription: selectedProduct.description || ''
+      productId: selectedProduct.id,
+      nome, telefone, cpf, email
     };
     let response = await fetch('/gerarqrcode', {
       method: 'POST',

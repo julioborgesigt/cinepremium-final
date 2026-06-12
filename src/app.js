@@ -19,7 +19,9 @@ app.set('trust proxy', 1);
 // CORS
 const corsOptions = {
     origin: process.env.NODE_ENV === 'production'
-        ? process.env.ALLOWED_ORIGINS?.split(',').map(origin => origin.trim())
+        ? (process.env.ALLOWED_ORIGINS
+            ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+            : false) // fail-closed: sem ALLOWED_ORIGINS, bloqueia cross-origin
         : ['http://localhost:3000', 'http://127.0.0.1:3000'],
     credentials: true,
     optionsSuccessStatus: 200

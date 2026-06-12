@@ -3,10 +3,9 @@
 const express = require('express');
 const { Op } = require('sequelize');
 const validator = require('validator');
-const { PurchaseHistory, sequelize } = require('../../models');
-const { requireLogin } = require('../middlewares/auth');
+const { PurchaseHistory, Product, sequelize } = require('../../models');
 const { statusCheckLimiter, qrCodeLimiter } = require('../middlewares/rateLimiters');
-const { sanitizeInput, isValidCPF, isValidEmail, isValidPhone } = require('../middlewares/validation');
+const { sanitizeInput, isValidCPF, isValidPhone } = require('../middlewares/validation');
 const {
     getActivePaymentGateway,
     createCiabraCustomer,
@@ -35,14 +34,19 @@ router.post('/gerarqrcode', qrCodeLimiter, (req, res, next) => {
         const { telefone, cpf } = req.body;
         const nome = sanitizeInput(req.body.nome);
         const email = sanitizeInput(req.body.email);
-        const productTitle = sanitizeInput(req.body.productTitle);
-        const productDescription = sanitizeInput(req.body.productDescription);
 
-        // Valida value como inteiro positivo (centavos)
-        const value = parseInt(req.body.value, 10);
-        if (!Number.isInteger(value) || value <= 0) {
-            return res.status(400).json({ error: 'Valor do produto inválido.' });
+        // Busca o produto no servidor — impede manipulação de preço pelo cliente
+        const productId = parseInt(req.body.productId, 10);
+        if (!Number.isInteger(productId) || productId <= 0) {
+            return res.status(400).json({ error: 'Produto inválido.' });
         }
+        const product = await Product.findByPk(productId);
+        if (!product) {
+            return res.status(404).json({ error: 'Produto não encontrado.' });
+        }
+        const value = product.price;
+        const productTitle = product.title;
+        const productDescription = product.description || '';
 
         if (!nome || !telefone || !cpf || !email) {
             return res.status(400).json({ error: 'Todos os campos, incluindo e-mail, são obrigatórios.' });
