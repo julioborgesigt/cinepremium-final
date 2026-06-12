@@ -70,7 +70,10 @@ async function initializeRedis() {
         if (error.stack) {
             console.error('   Stack trace:', error.stack.split('\n').slice(0, 3).join('\n'));
         }
-        console.warn('⚠️ Usando MemoryStore como fallback (NÃO RECOMENDADO EM PRODUÇÃO)');
+        if (process.env.NODE_ENV === 'production') {
+            throw error; // fail-closed: não sobe sem Redis em produção
+        }
+        console.warn('⚠️ Usando MemoryStore como fallback (apenas desenvolvimento)');
         redisClient = null;
         sessionStore = null;
     }

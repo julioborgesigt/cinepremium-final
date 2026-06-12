@@ -905,7 +905,9 @@
     <!-- Header -->
     <div class="admin-header">
       <h1>🎬 Painel de Administração</h1>
-      <a href="/logout" class="logout-link">Sair</a>
+      <form action="/logout" method="post" style="display:inline;margin:0;padding:0;">
+        <button type="submit" class="logout-link" style="border:none;cursor:pointer;font-family:inherit;font-size:inherit;">Sair</button>
+      </form>
     </div>
 
     <!-- Dashboard de Estatísticas -->
