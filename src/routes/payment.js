@@ -103,7 +103,7 @@ router.post('/gerarqrcode', qrCodeLimiter, (req, res, next) => {
                     throw new Error(`Preço calculado inválido: ${ciabraPrice}`);
                 }
 
-                const cleanPhone = telefone ? String(telefone).replace(/\D/g, '') : undefined;
+                const cleanPhone = telefone ? `+55${String(telefone).replace(/\D/g, '')}` : undefined;
                 const cleanDocument = cpf ? String(cpf).replace(/\D/g, '') : undefined;
                 const cleanDescription = `${productTitle || 'Produto'} - ${productDescription || ''}`.trim().substring(0, 100);
 
