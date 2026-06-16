@@ -85,11 +85,22 @@ app.use(cookieParser());
 // Será substituído pelo middleware real em startServer() após Redis conectar.
 app.use((req, res, next) => {
     const sessionMiddleware = app.get('sessionMiddleware');
-    if (sessionMiddleware) {
-        return sessionMiddleware(req, res, next);
+    if (!sessionMiddleware) {
+        console.warn(`[AVISO] Requisição ${req.path} antes de session middleware estar pronto!`);
+        return next();
     }
-    console.warn(`[AVISO] Requisição ${req.path} antes de session middleware estar pronto!`);
-    next();
+    // Erro no store de sessão (ex: Redis caiu em runtime) NÃO deve derrubar a requisição
+    // inteira com 500. Sem este guard, qualquer instabilidade do Redis gera HTML 500 em
+    // TODAS as rotas (inclusive /api/products e /api/csrf-token, que nem usam sessão).
+    // Aqui, se o store falhar, prosseguimos sem sessão persistida: o site público (produtos,
+    // CSRF via cookie, pagamento) continua funcionando; apenas o login admin não persiste.
+    sessionMiddleware(req, res, (err) => {
+        if (err) {
+            console.error(`[SESSION] Falha no store de sessão em ${req.path}: ${err.message}. Prosseguindo sem sessão persistida.`);
+            return next();
+        }
+        next();
+    });
 });
 
 // Debug de sessão (apenas quando DEBUG_SESSION=true, nunca por padrão em produção)
