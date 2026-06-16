@@ -70,10 +70,23 @@ async function initializeRedis() {
         if (error.stack) {
             console.error('   Stack trace:', error.stack.split('\n').slice(0, 3).join('\n'));
         }
-        if (process.env.NODE_ENV === 'production') {
-            throw error; // fail-closed: não sobe sem Redis em produção
+        // Por padrão, mantém o site no ar com MemoryStore (sessões voláteis) mesmo em
+        // produção — um blip no Redis Cloud não deve derrubar o site inteiro.
+        // Para exigir Redis (fail-closed) e abortar a inicialização, defina REDIS_REQUIRED=true.
+        if (process.env.NODE_ENV === 'production' && process.env.REDIS_REQUIRED === 'true') {
+            throw error;
         }
-        console.warn('⚠️ Usando MemoryStore como fallback (apenas desenvolvimento)');
+
+        // Garante que o client órfão não fique tentando reconectar em segundo plano
+        if (redisClient) {
+            try { await redisClient.destroy(); } catch (e) { /* já desconectado */ }
+        }
+
+        if (process.env.NODE_ENV === 'production') {
+            console.error('🚨 [PRODUÇÃO] Redis indisponível — usando MemoryStore (sessões serão perdidas a cada restart). Verifique o Redis!');
+        } else {
+            console.warn('⚠️ Usando MemoryStore como fallback (apenas desenvolvimento)');
+        }
         redisClient = null;
         sessionStore = null;
     }
