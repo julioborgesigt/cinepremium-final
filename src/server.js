@@ -11,6 +11,29 @@ const { sequelize } = require('../models');
 
 const PORT = process.env.PORT || 3000;
 
+/**
+ * Conecta ao banco com retry e backoff exponencial.
+ * Tolera blips transitórios de rede no boot — sem isso, uma falha momentânea
+ * fazia process.exit(1) e derrubava o site até um redeploy manual.
+ * Uma falha persistente (ex: senha errada) ainda aborta após as tentativas.
+ */
+async function connectToDatabaseWithRetry(maxAttempts = 4) {
+    const delays = [2000, 4000, 8000]; // 2s, 4s, 8s entre as tentativas
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            await sequelize.authenticate();
+            console.log(`Conexão com o banco de dados estabelecida com sucesso${attempt > 1 ? ` (tentativa ${attempt})` : ''}.`);
+            return;
+        } catch (error) {
+            console.error(`❌ Falha ao conectar ao banco (tentativa ${attempt}/${maxAttempts}): ${error.message}`);
+            if (attempt === maxAttempts) throw error;
+            const delayMs = delays[attempt - 1];
+            console.log(`⏳ Nova tentativa de conexão ao banco em ${delayMs / 1000}s...`);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+    }
+}
+
 async function startServer() {
     try {
         console.log('Inicializando servidor...');
@@ -32,9 +55,8 @@ async function startServer() {
             console.warn('[SEGURANÇA] ALLOWED_ORIGINS não definido — CORS rejeitará requisições cross-origin.');
         }
 
-        // 1. Testa conexão com banco de dados
-        await sequelize.authenticate();
-        console.log('Conexão com o banco de dados estabelecida com sucesso.');
+        // 1. Testa conexão com banco de dados (com retry para blips transitórios)
+        await connectToDatabaseWithRetry();
 
         // 2. Inicializa Firebase (não bloqueia)
         initFirebase();
