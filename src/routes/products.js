@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { Product } = require('../../models');
+const { Product, sequelize } = require('../../models');
 const { requireLogin } = require('../middlewares/auth');
 const { sanitizeInput } = require('../middlewares/validation');
 
@@ -81,9 +81,13 @@ router.put('/api/products/reorder', requireLogin, (req, res, next) => {
         if (!order || !Array.isArray(order)) {
             return res.status(400).json({ error: 'Array de ordem é obrigatório.' });
         }
-        await Promise.all(
-            order.map((productId, index) =>
-                Product.update({ orderIndex: index }, { where: { id: productId } })
+        // Transação curta (apenas updates locais): ou toda a reordenação é aplicada,
+        // ou nada — evita ordem inconsistente em caso de falha parcial.
+        await sequelize.transaction(async (t) =>
+            Promise.all(
+                order.map((productId, index) =>
+                    Product.update({ orderIndex: index }, { where: { id: productId }, transaction: t })
+                )
             )
         );
         invalidateProductsCache();

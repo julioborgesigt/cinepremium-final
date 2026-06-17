@@ -153,13 +153,13 @@ router.get('/api/firebase-config', (req, res) => {
 // GET /api/csrf-token — fornece CSRF token para o frontend
 router.get('/api/csrf-token', (req, res) => {
     try {
-        const csrfProtection = req.app.get('csrfProtection');
-        if (!csrfProtection) {
+        const generateCsrfToken = req.app.get('generateCsrfToken');
+        if (!generateCsrfToken) {
             return res.status(503).json({ error: 'CSRF protection não inicializado' });
         }
-        csrfProtection(req, res, () => {
-            res.json({ csrfToken: req.csrfToken() });
-        });
+        // Gera o token, seta o cookie de validação e devolve o token ao frontend.
+        const csrfToken = generateCsrfToken(req, res);
+        res.json({ csrfToken });
     } catch (error) {
         console.error('[CSRF Token] Erro ao gerar token:', error);
         res.status(500).json({ error: 'Erro ao gerar CSRF token' });

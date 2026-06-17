@@ -1,6 +1,6 @@
 'use strict';
 
-const csrf = require('csurf');
+const { doubleCsrfProtection, generateCsrfToken } = require('./config/csrf');
 const app = require('./app');
 const { initializeRedis, getSessionStore, getRedisClient } = require('./config/redis');
 const { createSessionMiddleware } = require('./config/session');
@@ -70,20 +70,15 @@ async function startServer() {
         app.set('sessionMiddleware', sessionMiddleware);
         console.log(`Middleware de sessão configurado (${sessionStore ? 'RedisStore' : 'MemoryStore'})`);
 
-        // 5. Configura CSRF protection e disponibiliza para as rotas via app.set
-        const csrfProtection = csrf({
-            cookie: {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: 'strict'
-            }
-        });
-        app.set('csrfProtection', csrfProtection);
+        // 5. Configura CSRF protection (csrf-csrf / double-submit) e disponibiliza
+        //    para as rotas via app.set
+        app.set('csrfProtection', doubleCsrfProtection);
+        app.set('generateCsrfToken', generateCsrfToken);
 
         // Cria applyCsrf usando o getter para evitar dependência circular
         const applyCsrf = makeApplyCsrf(() => app.get('csrfProtection'));
         app.set('applyCsrf', applyCsrf);
-        console.log('✅ CSRF protection configurado');
+        console.log('✅ CSRF protection configurado (csrf-csrf / double-submit)');
 
         // 5. Verifica credenciais CIABRA
         if (CIABRA_PUBLIC_KEY && CIABRA_PRIVATE_KEY) {
