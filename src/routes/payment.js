@@ -3,7 +3,7 @@
 const express = require('express');
 const { Op } = require('sequelize');
 const validator = require('validator');
-const { PurchaseHistory, Product, sequelize } = require('../../models');
+const { PurchaseHistory, Product } = require('../../models');
 const { statusCheckLimiter, qrCodeLimiter } = require('../middlewares/rateLimiters');
 const { sanitizeInput, isValidCPF, isValidPhone } = require('../middlewares/validation');
 const {
@@ -77,18 +77,16 @@ router.post('/gerarqrcode', qrCodeLimiter, (req, res, next) => {
             return res.status(429).json({ error: 'Você já tentou pagar muitas vezes, procure seu vendedor ou tente novamente depois de algumas horas.' });
         }
 
-        const t = await sequelize.transaction();
-        try {
-            const purchaseRecord = await PurchaseHistory.create(
-                { nome, telefone, status: 'Gerado', valorPago: value },
-                { transaction: t }
-            );
+        // INSERT atômico, sem transação longa. As chamadas externas (CIABRA + Puppeteer)
+        // não devem segurar uma conexão do pool: antes, a transação ficava aberta por
+        // ~15-30s e esgotava o pool (max 5) com poucos checkouts simultâneos.
+        const purchaseRecord = await PurchaseHistory.create(
+            { nome, telefone, status: 'Gerado', valorPago: value }
+        );
 
+        try {
             const expirationDate = new Date();
             expirationDate.setMinutes(expirationDate.getMinutes() + 30);
-            const pad = (num) => String(num).padStart(2, '0');
-            const dueDateFormatted = `${expirationDate.getFullYear()}-${pad(expirationDate.getMonth() + 1)}-${pad(expirationDate.getDate())} ${pad(expirationDate.getHours())}:${pad(expirationDate.getMinutes())}:${pad(expirationDate.getSeconds())}`;
-            void dueDateFormatted;
 
             const activeGateway = await getActivePaymentGateway();
             console.log(`[GERARQRCODE] 🏦 Gateway ativo: ${activeGateway}`);
@@ -188,12 +186,9 @@ router.post('/gerarqrcode', qrCodeLimiter, (req, res, next) => {
             }
 
             await purchaseRecord.update(
-                { transactionId: transactionIdResult, paymentGateway: activeGateway },
-                { transaction: t }
+                { transactionId: transactionIdResult, paymentGateway: activeGateway }
             );
-
-            await t.commit();
-            console.log('[GERARQRCODE] ✅ Transação commitada com sucesso!');
+            console.log('[GERARQRCODE] ✅ Pagamento gerado e registro atualizado com sucesso!');
 
             sendPushNotification('Nova Tentativa de Venda!', `${nome} gerou um QR Code para pagamento.`);
 
@@ -212,8 +207,14 @@ router.post('/gerarqrcode', qrCodeLimiter, (req, res, next) => {
             res.json(resultado);
 
         } catch (transactionError) {
-            await t.rollback();
-            console.error('❌ Erro na transação, rollback executado:', transactionError.message);
+            // Reverte o registro órfão (replica o antigo rollback) sem segurar uma conexão
+            // do pool durante o I/O externo lento.
+            try {
+                await purchaseRecord.destroy();
+            } catch (cleanupError) {
+                console.error('❌ Falha ao reverter registro órfão:', cleanupError.message);
+            }
+            console.error('❌ Erro ao gerar pagamento, registro revertido:', transactionError.message);
             throw transactionError;
         }
     } catch (error) {

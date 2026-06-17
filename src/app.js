@@ -120,4 +120,16 @@ if (process.env.DEBUG_SESSION === 'true') {
 // Registra todas as rotas
 registerRoutes(app);
 
+// Error handler para token CSRF inválido. O csrf-csrf chama next(err) com
+// err.code === 'EBADCSRFTOKEN'; respondemos JSON 403, que o frontend já trata
+// renovando o token e repetindo a requisição.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+    if (err && err.code === 'EBADCSRFTOKEN') {
+        console.warn(`[CSRF] Token inválido em ${req.method} ${req.path} — IP: ${req.ip}`);
+        return res.status(403).json({ error: 'CSRF token inválido. Recarregue a página e tente novamente.' });
+    }
+    next(err);
+});
+
 module.exports = app;

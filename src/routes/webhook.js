@@ -1,10 +1,20 @@
 'use strict';
 
 const express = require('express');
+const crypto = require('crypto');
 const { PurchaseHistory } = require('../../models');
 const { webhookLimiter } = require('../middlewares/rateLimiters');
 const { addDebugLog } = require('../services/ciabraService');
 const { sendPushNotification } = require('../services/firebaseService');
+
+// Comparação em tempo constante para não vazar a chave por análise de timing.
+function safeEqual(a, b) {
+    if (typeof a !== 'string' || typeof b !== 'string') return false;
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+}
 
 // Valida o header x-ciabra-pub enviado pela CIABRA em cada notificação.
 // Docs: cada notificação inclui x-ciabra-pub com a chave pública da aplicação.
@@ -14,8 +24,7 @@ function isTrustedWebhook(req) {
         console.error('[CIABRA WEBHOOK] CIABRA_PUBLIC_KEY não configurado — rejeitando webhook');
         return false;
     }
-    const receivedKey = req.headers['x-ciabra-pub'];
-    return receivedKey === process.env.CIABRA_PUBLIC_KEY;
+    return safeEqual(req.headers['x-ciabra-pub'], process.env.CIABRA_PUBLIC_KEY);
 }
 
 const router = express.Router();
@@ -78,7 +87,14 @@ router.post('/ciabra-webhook', webhookLimiter, async (req, res) => {
         // pricePaid vem em centavos (ex: 15000 = R$ 150,00), igual ao campo valorPago.
         const updateData = { status: 'Sucesso' };
         if (typeof pricePaid === 'number' && pricePaid > 0) {
-            updateData.valorPago = pricePaid;
+            const expected = purchase.valorPago;
+            if (typeof expected === 'number' && expected > 0 && pricePaid !== expected) {
+                // Valor divergente do esperado: confirma o pagamento, mas preserva o valor
+                // original (não deixa um webhook forjado/errado reescrever a receita) e alerta.
+                console.warn(`[CIABRA WEBHOOK] ⚠️ Valor divergente na compra ${purchase.id}: esperado ${expected}, recebido ${pricePaid}. Mantendo o valor esperado.`);
+            } else {
+                updateData.valorPago = pricePaid;
+            }
         }
         await purchase.update(updateData);
         console.log(`[CIABRA WEBHOOK] ✅ Compra ${purchase.id} atualizada para 'Sucesso'.`);

@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { Product } = require('../../models');
+const { Product, sequelize } = require('../../models');
 const { requireLogin } = require('../middlewares/auth');
 const { sanitizeInput } = require('../middlewares/validation');
 
@@ -54,7 +54,7 @@ router.post('/api/products', requireLogin, (req, res, next) => {
         if (title.length < 3) {
             return res.status(400).json({ error: 'Título inválido ou contém caracteres não permitidos.' });
         }
-        const priceNum = parseInt(price);
+        const priceNum = parseInt(price, 10);
         if (isNaN(priceNum) || priceNum <= 0 || priceNum > 1000000) {
             return res.status(400).json({ error: 'Preço inválido (deve ser entre 1 e 1.000.000 centavos).' });
         }
@@ -81,9 +81,13 @@ router.put('/api/products/reorder', requireLogin, (req, res, next) => {
         if (!order || !Array.isArray(order)) {
             return res.status(400).json({ error: 'Array de ordem é obrigatório.' });
         }
-        await Promise.all(
-            order.map((productId, index) =>
-                Product.update({ orderIndex: index }, { where: { id: productId } })
+        // Transação curta (apenas updates locais): ou toda a reordenação é aplicada,
+        // ou nada — evita ordem inconsistente em caso de falha parcial.
+        await sequelize.transaction(async (t) =>
+            Promise.all(
+                order.map((productId, index) =>
+                    Product.update({ orderIndex: index }, { where: { id: productId }, transaction: t })
+                )
             )
         );
         invalidateProductsCache();

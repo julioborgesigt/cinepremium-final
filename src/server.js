@@ -1,6 +1,6 @@
 'use strict';
 
-const csrf = require('csurf');
+const { doubleCsrfProtection, generateCsrfToken } = require('./config/csrf');
 const app = require('./app');
 const { initializeRedis, getSessionStore, getRedisClient } = require('./config/redis');
 const { createSessionMiddleware } = require('./config/session');
@@ -70,20 +70,15 @@ async function startServer() {
         app.set('sessionMiddleware', sessionMiddleware);
         console.log(`Middleware de sessão configurado (${sessionStore ? 'RedisStore' : 'MemoryStore'})`);
 
-        // 5. Configura CSRF protection e disponibiliza para as rotas via app.set
-        const csrfProtection = csrf({
-            cookie: {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: 'strict'
-            }
-        });
-        app.set('csrfProtection', csrfProtection);
+        // 5. Configura CSRF protection (csrf-csrf / double-submit) e disponibiliza
+        //    para as rotas via app.set
+        app.set('csrfProtection', doubleCsrfProtection);
+        app.set('generateCsrfToken', generateCsrfToken);
 
         // Cria applyCsrf usando o getter para evitar dependência circular
         const applyCsrf = makeApplyCsrf(() => app.get('csrfProtection'));
         app.set('applyCsrf', applyCsrf);
-        console.log('✅ CSRF protection configurado');
+        console.log('✅ CSRF protection configurado (csrf-csrf / double-submit)');
 
         // 5. Verifica credenciais CIABRA
         if (CIABRA_PUBLIC_KEY && CIABRA_PRIVATE_KEY) {
@@ -109,18 +104,18 @@ async function startServer() {
                     await sequelize.close();
                     console.log('🗄️  Conexão com banco de dados fechada');
 
+                    // node-redis v5: quit() retorna Promise e NÃO aceita callback. A versão
+                    // anterior passava um callback que nunca era chamado, travando o shutdown
+                    // até o timeout de 30s. O client do store é o mesmo objeto retornado aqui.
                     const redisClient = getRedisClient();
-                    const store = getSessionStore();
-                    if (store && store.client) {
-                        await new Promise((resolve) => {
-                            store.client.quit(() => {
-                                console.log('🔴 Conexão com Redis fechada');
-                                resolve();
-                            });
-                        });
-                    } else if (redisClient) {
-                        await redisClient.quit();
-                        console.log('🔴 Conexão com Redis fechada');
+                    if (redisClient) {
+                        try {
+                            await redisClient.quit();
+                            console.log('🔴 Conexão com Redis fechada');
+                        } catch (redisCloseError) {
+                            console.warn('⚠️  Erro ao fechar Redis, forçando:', redisCloseError.message);
+                            try { await redisClient.destroy(); } catch (_) { /* já desconectado */ }
+                        }
                     }
 
                     console.log('✅ Graceful shutdown concluído');
