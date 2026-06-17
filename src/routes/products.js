@@ -54,7 +54,7 @@ router.post('/api/products', requireLogin, (req, res, next) => {
         if (title.length < 3) {
             return res.status(400).json({ error: 'Título inválido ou contém caracteres não permitidos.' });
         }
-        const priceNum = parseInt(price);
+        const priceNum = parseInt(price, 10);
         if (isNaN(priceNum) || priceNum <= 0 || priceNum > 1000000) {
             return res.status(400).json({ error: 'Preço inválido (deve ser entre 1 e 1.000.000 centavos).' });
         }

@@ -109,18 +109,18 @@ async function startServer() {
                     await sequelize.close();
                     console.log('🗄️  Conexão com banco de dados fechada');
 
+                    // node-redis v5: quit() retorna Promise e NÃO aceita callback. A versão
+                    // anterior passava um callback que nunca era chamado, travando o shutdown
+                    // até o timeout de 30s. O client do store é o mesmo objeto retornado aqui.
                     const redisClient = getRedisClient();
-                    const store = getSessionStore();
-                    if (store && store.client) {
-                        await new Promise((resolve) => {
-                            store.client.quit(() => {
-                                console.log('🔴 Conexão com Redis fechada');
-                                resolve();
-                            });
-                        });
-                    } else if (redisClient) {
-                        await redisClient.quit();
-                        console.log('🔴 Conexão com Redis fechada');
+                    if (redisClient) {
+                        try {
+                            await redisClient.quit();
+                            console.log('🔴 Conexão com Redis fechada');
+                        } catch (redisCloseError) {
+                            console.warn('⚠️  Erro ao fechar Redis, forçando:', redisCloseError.message);
+                            try { await redisClient.destroy(); } catch (_) { /* já desconectado */ }
+                        }
                     }
 
                     console.log('✅ Graceful shutdown concluído');
